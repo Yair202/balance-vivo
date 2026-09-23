@@ -168,11 +168,26 @@ async function main() {
   // --- Costo de ventas (aproximado con el costo ACTUAL del producto) ---
   console.log("Trayendo líneas de venta para calcular costo de ventas...");
   const lineas = idsOrdenes.length
-    ? await buscarTodo("pos.order.line", [["order_id", "in", idsOrdenes]], ["order_id", "product_id", "qty"])
+    ? await buscarTodo("pos.order.line", [["order_id", "in", idsOrdenes]], ["order_id", "product_id", "qty", "price_subtotal_incl", "price_unit"])
     : [];
   const idsProductos = [...new Set(lineas.map((l) => l.product_id?.[0]).filter(Boolean))];
   const productos = idsProductos.length ? await buscarTodo("product.product", [["id", "in", idsProductos]], ["id", "standard_price"]) : [];
   const costoPorProducto = new Map(productos.map((p) => [p.id, p.standard_price || 0]));
+
+  // Detalle línea por línea (para el botón "Venta hoy" -> ver qué se vendió y a
+  // qué precio). Se guarda aparte de datos-ventas.json porque es MUCHO más
+  // pesado (miles de líneas) y el tablero solo lo necesita para un día puntual.
+  const detalleVentas = lineas
+    .filter((l) => l.product_id)
+    .map((l) => ({
+      fecha: fechaPorOrden.get(l.order_id?.[0]),
+      productoId: l.product_id[0],
+      producto: l.product_id[1],
+      cantidad: l.qty,
+      precioUnitario: l.price_unit || 0,
+      subtotal: l.price_subtotal_incl || l.qty * (l.price_unit || 0),
+    }))
+    .filter((l) => l.fecha);
 
   // --- Agregación día a día ---
   const porDia = new Map(); // fecha -> registro
@@ -207,8 +222,10 @@ async function main() {
   const outDir = path.resolve(process.cwd(), "public");
   await mkdir(outDir, { recursive: true });
   await writeFile(path.join(outDir, "datos-ventas.json"), JSON.stringify(registros, null, 2), "utf-8");
+  await writeFile(path.join(outDir, "datos-detalle-ventas.json"), JSON.stringify(detalleVentas), "utf-8");
 
   console.log(`\nListo: ${registros.length} días escritos en public/datos-ventas.json`);
+  console.log(`Listo: ${detalleVentas.length} líneas de venta escritas en public/datos-detalle-ventas.json`);
   if (metodosSinClasificar.length) {
     console.log(`\nAviso: estos métodos de pago no se reconocieron por nombre y se sumaron a "transferencias": ${metodosSinClasificar.join(", ")}`);
     console.log(`Si alguno debería ser "efectivo" o "tarjetas", ajusta la función clasificarMetodo() en este archivo.`);

@@ -188,7 +188,7 @@ const COLOR_NEGATIVO = "#b3221c";
 /* =============================================================================
    SECCIÓN 3 — SUB-COMPONENTES DE UI
 ============================================================================= */
-function TarjetaKPI({ etiqueta, valor, Icono, delta, deltaEtiqueta }) {
+function TarjetaKPI({ etiqueta, valor, Icono, delta, deltaEtiqueta, onClickValor }) {
   const positivo = delta >= 0;
   const FlechaDelta = positivo ? TrendingUp : TrendingDown;
   return (
@@ -196,7 +196,13 @@ function TarjetaKPI({ etiqueta, valor, Icono, delta, deltaEtiqueta }) {
       <div className="flex items-center gap-2 text-sm font-semibold text-gray-500">
         <Icono size={16} className="text-emerald-700" />{etiqueta}
       </div>
-      <div className="text-2xl font-semibold tabular-nums truncate">{valor}</div>
+      {onClickValor ? (
+        <button onClick={onClickValor} title="Ver el detalle de productos vendidos" className="text-2xl font-semibold tabular-nums truncate text-left hover:text-emerald-700 hover:underline underline-offset-4 decoration-2 w-fit">
+          {valor}
+        </button>
+      ) : (
+        <div className="text-2xl font-semibold tabular-nums truncate">{valor}</div>
+      )}
       {delta !== undefined && (
         <div className={`flex items-center gap-1 text-sm font-semibold ${positivo ? "text-green-700" : "text-red-700"}`}>
           <FlechaDelta size={14} />{formatoPct(delta)}
@@ -482,23 +488,27 @@ function PanelAnalisisPatron({ registros }) {
 export default function PanelFinanciero() {
   const [vista, setVista] = useState("financiero"); // 'financiero' | 'inventario'
   const [registros, setRegistros] = useState(generarRegistrosSimulados);
+  const [detalleVentas, setDetalleVentas] = useState([]); // líneas de venta (producto/cantidad/precio) para el detalle de "Venta hoy"
   const [fuenteDatos, setFuenteDatos] = useState("simulados"); // 'simulados' | 'odoo'
   const [sincronizando, setSincronizando] = useState(false);
   const [mensajeSync, setMensajeSync] = useState(null); // { tipo: 'ok' | 'error', texto }
+  const [modalDetalleAbierto, setModalDetalleAbierto] = useState(false);
 
   // Busca los datos reales que haya dejado `npm run sync-odoo`
-  // (public/datos-ventas.json). Si el archivo no existe todavía, se queda
-  // con los datos simulados — así el tablero nunca se rompe por no haber
-  // sincronizado aún.
+  // (public/datos-ventas.json + datos-detalle-ventas.json). Si no existen
+  // todavía, se queda con los datos simulados — así el tablero nunca se
+  // rompe por no haber sincronizado aún.
   const cargarDatosSincronizados = () =>
-    fetch("/datos-ventas.json", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((datosReales) => {
-        if (Array.isArray(datosReales) && datosReales.length > 0) {
-          setRegistros(datosReales);
-          setFuenteDatos("odoo");
-        }
-      });
+    Promise.all([
+      fetch("/datos-ventas.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+      fetch("/datos-detalle-ventas.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([datosReales, detalle]) => {
+      if (Array.isArray(datosReales) && datosReales.length > 0) {
+        setRegistros(datosReales);
+        setFuenteDatos("odoo");
+      }
+      if (Array.isArray(detalle)) setDetalleVentas(detalle);
+    });
 
   useEffect(() => { cargarDatosSincronizados().catch(() => {}); }, []);
 
@@ -552,6 +562,15 @@ export default function PanelFinanciero() {
   const [mesSel, setMesSel] = useState(undefined);
   const [diaSel, setDiaSel] = useState(null);
 
+  // Botón "Venta hoy": va directo al DÍA de calendario de hoy (distinto de
+  // "Volver a hoy", que solo vuelve al mes actual).
+  const irAVentaHoy = () => {
+    const hoy = new Date();
+    setAnoSel(String(hoy.getFullYear()));
+    setMesSel(hoy.getMonth() + 1);
+    setDiaSel(hoy.getDate());
+  };
+
   const infoRango = useMemo(() => {
     const ordenados = [...registros].sort((a, b) => a.fecha.localeCompare(b.fecha));
     const ultimaFecha = ordenados[ordenados.length - 1]?.fecha || "2026-01-01";
@@ -567,6 +586,7 @@ export default function PanelFinanciero() {
   const etiquetaPeriodo = nivelActivo === "dia" ? "del día" : nivelActivo === "ano" ? "del año" : "del mes";
   const nombreMesCap = mesActivo ? NOMBRES_MES[mesActivo - 1].charAt(0).toUpperCase() + NOMBRES_MES[mesActivo - 1].slice(1) : "";
   const tituloPeriodo = nivelActivo === "dia" ? `${diaActivo} ${nombreMesCap} ${anoActivo}` : nivelActivo === "mes" ? `${nombreMesCap} ${anoActivo}` : anoActivo;
+  const fechaDiaActivo = diaActivo ? `${anoActivo}-${String(mesActivo).padStart(2, "0")}-${String(diaActivo).padStart(2, "0")}` : null;
 
   const pad2 = (n) => String(n).padStart(2, "0");
   const diasEnMesDe = (fechaIso) => new Date(Number(fechaIso.slice(0, 4)), Number(fechaIso.slice(5, 7)), 0).getDate();
@@ -815,12 +835,18 @@ export default function PanelFinanciero() {
             {Array.from({ length: diasEnMesActivo }, (_, i) => i + 1).map((d) => <option key={d} value={d}>Día {d}</option>)}
           </select>
         )}
+        <button
+          onClick={irAVentaHoy}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border border-emerald-700 text-emerald-700 hover:bg-emerald-50"
+        >
+          <Target size={14} />Venta hoy
+        </button>
         {(anoSel !== undefined || mesSel !== undefined || diaSel !== null) && (
           <button
             onClick={() => { setAnoSel(undefined); setMesSel(undefined); setDiaSel(null); }}
             className="text-xs font-semibold text-emerald-700 hover:underline ml-1"
           >
-            Volver a hoy
+            Volver al mes actual
           </button>
         )}
       </div>
@@ -828,7 +854,8 @@ export default function PanelFinanciero() {
       {/* KPIs */}
       <section className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))" }}>
         <TarjetaKPI etiqueta={`Ventas brutas ${etiquetaPeriodo}`} valor={formatoCOP(pygActual.ventasBrutas)} Icono={Package}
-          delta={deltaPct(pygActual.ventasBrutas, pygAnterior.ventasBrutas)} deltaEtiqueta={datos.etiquetaAnterior} />
+          delta={deltaPct(pygActual.ventasBrutas, pygAnterior.ventasBrutas)} deltaEtiqueta={datos.etiquetaAnterior}
+          onClickValor={nivelActivo === "dia" && pygActual.ventasBrutas > 0 ? () => setModalDetalleAbierto(true) : undefined} />
         <TarjetaKPI etiqueta={`Utilidad neta ${etiquetaPeriodo}`} valor={formatoCOP(pygActual.utilidadNeta)} Icono={Wallet}
           delta={deltaPct(pygActual.utilidadNeta, pygAnterior.utilidadNeta)} deltaEtiqueta={datos.etiquetaAnterior} />
         <TarjetaKPI etiqueta="Margen neto" valor={`${pygActual.margenNeto.toFixed(1)}%`} Icono={Percent}
@@ -954,6 +981,15 @@ export default function PanelFinanciero() {
           setPctGastosVariables={setPctGastosVariables}
         />
       )}
+
+      {modalDetalleAbierto && (
+        <ModalDetalleVenta
+          fecha={fechaDiaActivo}
+          titulo={tituloPeriodo}
+          lineas={detalleVentas.filter((l) => l.fecha === fechaDiaActivo)}
+          onCerrar={() => setModalDetalleAbierto(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1014,6 +1050,61 @@ function ModalConfigurarGastos({ onCerrar, gastosFijosMensuales, setGastosFijosM
             <button onClick={onCerrar} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-600">Cancelar</button>
             <button onClick={guardar} disabled={pctInvalido} className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">Guardar</button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -----------------------------------------------------------------------
+   Modal de detalle de venta: qué productos se vendieron ese día y a qué
+   precio — se abre al hacer clic en el valor de "Ventas brutas del día"
+   (botón "Venta hoy" o cualquier día puntual del selector de período).
+----------------------------------------------------------------------- */
+function ModalDetalleVenta({ fecha, titulo, lineas, onCerrar }) {
+  const ordenadas = [...lineas].sort((a, b) => b.subtotal - a.subtotal);
+  const totalUnidades = ordenadas.reduce((s, l) => s + l.cantidad, 0);
+  const totalVenta = ordenadas.reduce((s, l) => s + l.subtotal, 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h3 className="font-semibold flex items-center gap-2"><Package size={17} className="text-emerald-700" />Detalle de venta — {titulo}</h3>
+          <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+        </div>
+        <div className="px-5 pt-4 pb-2 flex items-center gap-4 text-sm text-gray-500">
+          <span><b className="text-gray-900">{ordenadas.length}</b> referencias</span>
+          <span><b className="text-gray-900">{totalUnidades}</b> unidades</span>
+          <span className="ml-auto font-semibold text-gray-900 tabular-nums">{formatoCOP(totalVenta)}</span>
+        </div>
+        <div className="overflow-y-auto px-5 pb-5 flex-1">
+          {ordenadas.length ? (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-xs text-gray-400 border-b border-gray-200">
+                  <th className="text-left font-medium py-2">Producto</th>
+                  <th className="text-right font-medium py-2">Cantidad</th>
+                  <th className="text-right font-medium py-2">Precio unitario</th>
+                  <th className="text-right font-medium py-2">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ordenadas.map((l, i) => (
+                  <tr key={i} className="border-b border-gray-50">
+                    <td className="py-1.5 pr-2">{l.producto}</td>
+                    <td className="py-1.5 text-right tabular-nums text-gray-500">{l.cantidad}</td>
+                    <td className="py-1.5 text-right tabular-nums text-gray-500">{formatoCOP(l.precioUnitario)}</td>
+                    <td className="py-1.5 text-right tabular-nums font-medium">{formatoCOP(l.subtotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">
+              No hay detalle de productos para el {fecha} — sincroniza de nuevo si esperabas verlo aquí.
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -4,5 +4,6 @@ dist
 *.log
 .env
 public/datos-ventas.json
+public/datos-detalle-ventas.json
 public/datos-inventario.json
 explorar-inventario*.mjs
