@@ -1,0 +1,6 @@
+node_modules
+dist
+.vs
+*.log
+.env
+public/datos-ventas.json
