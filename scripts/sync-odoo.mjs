@@ -25,6 +25,10 @@
  *   - Gastos fijos y variables — quedan en 0, sigue ajustándolos en el
  *     formulario "Cargar ventas del día" del tablero, o mejora este script
  *     más adelante para leer de account.move si los llevas ahí.
+ *
+ * También escribe public/datos-inventario.json: catálogo completo (con
+ * talla/color/categoría/stock actual) + historial de movimientos de bodega
+ * (entradas de proveedor y salidas a cliente) — lo usa PanelInventario.jsx.
  * ---------------------------------------------------------------------------
  */
 import "dotenv/config";
@@ -211,6 +215,78 @@ async function main() {
   }
   console.log(`\nRecuerda: el costo de ventas usa el costo ACTUAL de cada producto (product.product.standard_price), no el histórico del día de la venta — es una aproximación.`);
   console.log(`Gastos fijos y variables quedaron en 0 (no vienen del POS) — sigue ajustándolos manualmente en el tablero.`);
+
+  // ===========================================================================
+  // INVENTARIO — catálogo (con talla/color/categoría/stock actual) + historial
+  // de movimientos de bodega (entradas de proveedor = reabastecimiento, salidas
+  // a cliente = venta/despacho). El tablero arma con esto rotación, más
+  // vendidos, tallas que más se mueven, etc. — todo calculado en el navegador
+  // a partir de estos dos arreglos, igual que hace con datos-ventas.json.
+  // ===========================================================================
+  console.log("\nTrayendo catálogo de productos...");
+  const catalogo = await buscarTodo(
+    "product.product", [["active", "=", true]],
+    ["id", "default_code", "name", "categ_id", "qty_available", "standard_price", "list_price", "attribute_value_ids"]
+  );
+
+  console.log("Trayendo valores de atributo (talla/color)...");
+  const valoresAtributo = await buscarTodo("product.attribute.value", [], ["id", "name", "attribute_id"]);
+  const infoValorAtributo = new Map(valoresAtributo.map((v) => [v.id, { nombre: v.name, atributo: v.attribute_id ? v.attribute_id[1] : null }]));
+
+  // ►► AJUSTA AQUÍ si en tu Odoo la talla/el color están en un atributo con
+  // otro nombre — se detectó "TALLA" y "COLOR" en este catálogo (ver también
+  // los atributos "Tallas"/"TAMAÑO" que existen pero casi no se usan).
+  const NOMBRE_ATRIBUTO_TALLA = "TALLA";
+  const NOMBRE_ATRIBUTO_COLOR = "COLOR";
+
+  const productosInventario = catalogo.map((p) => {
+    let talla = null, color = null;
+    for (const vid of p.attribute_value_ids) {
+      const info = infoValorAtributo.get(vid);
+      if (!info) continue;
+      if (info.atributo === NOMBRE_ATRIBUTO_TALLA && !talla) talla = info.nombre;
+      if (info.atributo === NOMBRE_ATRIBUTO_COLOR && !color) color = info.nombre;
+    }
+    return {
+      id: p.id,
+      codigo: p.default_code || "",
+      nombre: p.name,
+      categoria: p.categ_id ? p.categ_id[1] : "Sin categoría",
+      talla, color,
+      stockActual: p.qty_available,
+      costo: p.standard_price || 0,
+      precioVenta: p.list_price || 0,
+    };
+  });
+  console.log(`${productosInventario.length} productos/variantes en el catálogo.`);
+
+  console.log("Trayendo movimientos de bodega (entradas/salidas)...");
+  const ubicaciones = await buscarTodo("stock.location", [], ["id", "usage"]);
+  const usoPorUbicacion = new Map(ubicaciones.map((u) => [u.id, u.usage]));
+
+  const movimientosRaw = await buscarTodo(
+    "stock.move",
+    [["date", ">=", desdeStr], ["date", "<", hastaStr], ["state", "=", "done"]],
+    ["date", "product_id", "product_qty", "location_id", "location_dest_id"]
+  );
+  const movimientos = movimientosRaw
+    .filter((m) => m.product_id)
+    .map((m) => {
+      const usoOrigen = usoPorUbicacion.get(m.location_id?.[0]);
+      const usoDestino = usoPorUbicacion.get(m.location_dest_id?.[0]);
+      let tipo = "otro"; // transferencias internas, ajustes de inventario, etc.
+      if (usoOrigen === "supplier" && usoDestino === "internal") tipo = "entrada"; // reabastecimiento
+      else if (usoOrigen === "internal" && usoDestino === "customer") tipo = "salida"; // venta/despacho
+      return { fecha: fechaLocalISO(m.date), productoId: m.product_id[0], cantidad: m.product_qty, tipo };
+    });
+  console.log(`${movimientos.length} movimientos (${movimientos.filter((m) => m.tipo === "entrada").length} entradas, ${movimientos.filter((m) => m.tipo === "salida").length} salidas).`);
+
+  await writeFile(
+    path.join(outDir, "datos-inventario.json"),
+    JSON.stringify({ actualizado: new Date().toISOString(), productos: productosInventario, movimientos }),
+    "utf-8"
+  );
+  console.log(`\nListo: catálogo + movimientos escritos en public/datos-inventario.json`);
 }
 
 main().catch((err) => {

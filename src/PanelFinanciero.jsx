@@ -27,8 +27,9 @@ import {
 import {
   TrendingUp, TrendingDown, Wallet, Target,
   CalendarDays, FileText, Percent, Package, Table2, X,
-  SlidersHorizontal, RefreshCw, Home, Crown, Settings,
+  SlidersHorizontal, RefreshCw, Home, Crown, Settings, Warehouse, LayoutDashboard,
 } from "lucide-react";
+import PanelInventario from "./PanelInventario";
 
 /* =============================================================================
    SECCIÓN 1 — DATOS SIMULADOS (MOCK DATA)
@@ -479,6 +480,7 @@ function PanelAnalisisPatron({ registros }) {
    SECCIÓN 4 — COMPONENTE PRINCIPAL
 ============================================================================= */
 export default function PanelFinanciero() {
+  const [vista, setVista] = useState("financiero"); // 'financiero' | 'inventario'
   const [registros, setRegistros] = useState(generarRegistrosSimulados);
   const [fuenteDatos, setFuenteDatos] = useState("simulados"); // 'simulados' | 'odoo'
   const [sincronizando, setSincronizando] = useState(false);
@@ -761,6 +763,28 @@ export default function PanelFinanciero() {
         )}
       </header>
 
+      {/* Pestañas principales */}
+      <div className="flex gap-1.5 border-b border-gray-200">
+        {[
+          { valor: "financiero", etiqueta: "Financiero", Icono: LayoutDashboard },
+          { valor: "inventario", etiqueta: "Inventario", Icono: Warehouse },
+        ].map(({ valor, etiqueta, Icono }) => (
+          <button
+            key={valor}
+            onClick={() => setVista(valor)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px ${
+              vista === valor ? "border-emerald-700 text-emerald-700" : "border-transparent text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            <Icono size={15} />{etiqueta}
+          </button>
+        ))}
+      </div>
+
+      {vista === "inventario" && <PanelInventario />}
+
+      {vista === "financiero" && (
+      <>
       {/* Selector de período: controla TODO el tablero (KPIs, PyG, proyección) */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
         <span className="text-xs font-semibold text-gray-400 flex items-center gap-1.5"><CalendarDays size={14} />Viendo:</span>
@@ -918,6 +942,8 @@ export default function PanelFinanciero() {
           ? <>Datos reales sincronizados desde Odoo · Corre <code>npm run sync-odoo</code> para refrescar (o espera la sincronización automática)</>
           : <>Datos simulados con fines demostrativos · Corre <code>npm run sync-odoo</code> para traer tus ventas reales de Odoo</>}
       </footer>
+      </>
+      )}
 
       {modalGastosAbierto && (
         <ModalConfigurarGastos
