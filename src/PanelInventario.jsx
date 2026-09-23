@@ -25,12 +25,29 @@ import {
 } from "recharts";
 import {
   Package, PackageX, Layers, Warehouse, TrendingUp, TrendingDown,
-  ArrowDownToLine, ArrowUpFromLine, AlertTriangle, Ruler, X,
+  ArrowDownToLine, ArrowUpFromLine, AlertTriangle, Ruler, X, Search,
 } from "lucide-react";
 
 const formatoCOP = (v) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(v || 0);
 const formatoNum = (v) => new Intl.NumberFormat("es-CO").format(Math.round(v || 0));
 const COLORES_SERIE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#9085e9", "#e34948", "#199e70", "#c98500"];
+const NOMBRES_MES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+function inicioSemanaISO(fechaIso) {
+  const d = new Date(`${fechaIso}T00:00:00`);
+  const dia = d.getDay(); // 0 = domingo
+  d.setDate(d.getDate() - (dia === 0 ? 6 : dia - 1)); // retrocede al lunes
+  return d.toISOString().slice(0, 10);
+}
+function etiquetaPeriodo(clave, granularidad) {
+  if (granularidad === "dia") return clave;
+  if (granularidad === "semana") {
+    const [a, m, d] = clave.split("-");
+    return `Semana del ${Number(d)} ${NOMBRES_MES[Number(m) - 1]} ${a}`;
+  }
+  const [a, m] = clave.split("-");
+  return `${NOMBRES_MES[Number(m) - 1]} ${a}`;
+}
 
 function Tarjeta({ titulo, icono, acciones, children }) {
   return (
@@ -86,11 +103,124 @@ const PERIODOS = [
   { valor: 0, etiqueta: "Todo" },
 ];
 
+/* -----------------------------------------------------------------------
+   Buscar un producto puntual y ver su historial de movimientos agrupado
+   por día, semana o mes — para responder "¿cómo se ha movido ESTA
+   referencia?" en vez de solo agregados generales.
+----------------------------------------------------------------------- */
+function PanelMovimientosProducto({ productos, movimientos }) {
+  const [busqueda, setBusqueda] = useState("");
+  const [productoId, setProductoId] = useState(null);
+  const [granularidad, setGranularidad] = useState("semana"); // 'dia' | 'semana' | 'mes'
+
+  const coincidencias = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q || productoId) return [];
+    return productos.filter((p) => p.nombre.toLowerCase().includes(q) || p.codigo.toLowerCase().includes(q)).slice(0, 15);
+  }, [productos, busqueda, productoId]);
+
+  const productoSel = productos.find((p) => p.id === productoId);
+
+  const serie = useMemo(() => {
+    if (!productoId) return [];
+    const claveDe = (fecha) => (granularidad === "dia" ? fecha : granularidad === "mes" ? fecha.slice(0, 7) : inicioSemanaISO(fecha));
+    const buckets = new Map();
+    for (const m of movimientos) {
+      if (m.productoId !== productoId || (m.tipo !== "entrada" && m.tipo !== "salida")) continue;
+      const clave = claveDe(m.fecha);
+      if (!buckets.has(clave)) buckets.set(clave, { clave, entradas: 0, salidas: 0 });
+      const b = buckets.get(clave);
+      if (m.tipo === "entrada") b.entradas += m.cantidad; else b.salidas += m.cantidad;
+    }
+    return [...buckets.values()].sort((a, b) => b.clave.localeCompare(a.clave));
+  }, [productoId, movimientos, granularidad]);
+
+  const elegir = (id) => { setProductoId(id); setBusqueda(""); };
+
+  return (
+    <Tarjeta titulo="Movimientos de un producto específico" icono={<Search size={16} className="text-emerald-700" />}>
+      {!productoSel ? (
+        <div className="relative">
+          <input
+            type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Busca por nombre o código del producto…"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+          {coincidencias.length > 0 && (
+            <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+              {coincidencias.map((p) => (
+                <button
+                  key={p.id} onClick={() => elegir(p.id)}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between gap-2 border-b border-gray-50 last:border-0"
+                >
+                  <span className="truncate">{p.nombre}</span>
+                  <span className="text-xs text-gray-400 flex-shrink-0">{p.categoria} {p.talla ? `· ${p.talla}` : ""}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <div className="font-semibold text-sm">{productoSel.nombre}</div>
+              <div className="text-xs text-gray-400">{productoSel.categoria}{productoSel.talla ? ` · Talla ${productoSel.talla}` : ""} · Stock actual: {formatoNum(productoSel.stockActual)}</div>
+            </div>
+            <button onClick={() => { setProductoId(null); }} className="text-xs font-semibold text-emerald-700 hover:underline">Cambiar producto</button>
+          </div>
+
+          <div className="flex gap-1.5">
+            {[["dia", "Día"], ["semana", "Semana"], ["mes", "Mes"]].map(([v, l]) => (
+              <button
+                key={v} onClick={() => setGranularidad(v)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border ${granularidad === v ? "bg-emerald-700 text-white border-emerald-700" : "border-gray-300 text-gray-500 hover:bg-gray-100"}`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+
+          {serie.length ? (
+            <div className="max-h-72 overflow-y-auto border border-gray-100 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-xs text-gray-400 border-b border-gray-200">
+                    <th className="text-left font-medium py-1.5 px-3">Período</th>
+                    <th className="text-right font-medium py-1.5 px-3">Entradas</th>
+                    <th className="text-right font-medium py-1.5 px-3">Salidas</th>
+                    <th className="text-right font-medium py-1.5 px-3">Saldo neto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {serie.map((s) => (
+                    <tr key={s.clave} className="border-b border-gray-50">
+                      <td className="py-1.5 px-3">{etiquetaPeriodo(s.clave, granularidad)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-blue-700">{s.entradas ? `+${formatoNum(s.entradas)}` : "—"}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-emerald-700">{s.salidas ? `−${formatoNum(s.salidas)}` : "—"}</td>
+                      <td className={`py-1.5 px-3 text-right tabular-nums font-semibold ${s.entradas - s.salidas >= 0 ? "text-gray-700" : "text-red-600"}`}>
+                        {s.entradas - s.salidas >= 0 ? "+" : ""}{formatoNum(s.entradas - s.salidas)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-6">Esta referencia no tiene movimientos registrados.</p>
+          )}
+        </div>
+      )}
+    </Tarjeta>
+  );
+}
+
 export default function PanelInventario() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState(false);
   const [periodo, setPeriodo] = useState(90);
   const [modalAgotadosAbierto, setModalAgotadosAbierto] = useState(false);
+  const [agruparRotacionPor, setAgruparRotacionPor] = useState("categoria"); // 'categoria' | 'talla'
 
   useEffect(() => {
     fetch("/datos-inventario.json", { cache: "no-store" })
@@ -155,6 +285,24 @@ export default function PanelInventario() {
       .map((c) => ({ ...c, rotacion: c.stock > 0 ? c.vendido / c.stock : c.vendido > 0 ? Infinity : 0 }))
       .sort((a, b) => b.vendido - a.vendido);
 
+    // --- Rotación por talla (misma cuenta, agrupada por talla en vez de categoría) ---
+    const tallas = new Map();
+    for (const p of productos) {
+      const talla = p.talla || "Sin talla";
+      if (!tallas.has(talla)) tallas.set(talla, { categoria: talla, stock: 0, vendido: 0, valorStock: 0 });
+      const t = tallas.get(talla);
+      t.stock += Math.max(0, p.stockActual);
+      t.valorStock += Math.max(0, p.stockActual) * p.costo;
+    }
+    for (const [id, unidades] of salidasPorProducto) {
+      const p = productoPorId.get(id);
+      if (!p) continue;
+      tallas.get(p.talla || "Sin talla").vendido += unidades;
+    }
+    const rotacionPorTalla = [...tallas.values()]
+      .map((t) => ({ ...t, rotacion: t.stock > 0 ? t.vendido / t.stock : t.vendido > 0 ? Infinity : 0 }))
+      .sort((a, b) => b.vendido - a.vendido);
+
     // --- Reabastecimientos recientes (por producto, en el período) ---
     const reabastecimientos = [...entradasPorProducto.entries()]
       .map(([id, unidades]) => {
@@ -185,7 +333,7 @@ export default function PanelInventario() {
     const totalAgotados = agotados.length;
 
     return {
-      hoy, masVendidos, ventasPorTalla, rotacionPorCategoria, reabastecimientos, movimientosRecientes, agotados,
+      hoy, masVendidos, ventasPorTalla, rotacionPorCategoria, rotacionPorTalla, reabastecimientos, movimientosRecientes, agotados,
       totalSKUs, unidadesEnStock, valorInventarioCosto, totalAgotados,
     };
   }, [datos, periodo]);
@@ -263,13 +411,29 @@ export default function PanelInventario() {
         </Tarjeta>
       </div>
 
-      {/* Rotación por categoría */}
-      <Tarjeta titulo="Rotación por categoría" icono={<Layers size={16} className="text-emerald-700" />}>
+      {/* Rotación por categoría / talla */}
+      <Tarjeta
+        titulo={`Rotación por ${agruparRotacionPor === "categoria" ? "categoría" : "talla"}`}
+        icono={<Layers size={16} className="text-emerald-700" />}
+        acciones={
+          <div className="flex gap-1">
+            {[["categoria", "Categoría"], ["talla", "Talla"]].map(([v, l]) => (
+              <button
+                key={v}
+                onClick={() => setAgruparRotacionPor(v)}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${agruparRotacionPor === v ? "bg-emerald-700 text-white border-emerald-700" : "border-gray-300 text-gray-500 hover:bg-gray-100"}`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        }
+      >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs text-gray-400 border-b border-gray-200">
-                <th className="text-left font-medium py-2 px-2">Categoría</th>
+                <th className="text-left font-medium py-2 px-2">{agruparRotacionPor === "categoria" ? "Categoría" : "Talla"}</th>
                 <th className="text-right font-medium py-2 px-2">Stock actual</th>
                 <th className="text-right font-medium py-2 px-2">Vendido</th>
                 <th className="text-right font-medium py-2 px-2">Valor stock (costo)</th>
@@ -277,7 +441,7 @@ export default function PanelInventario() {
               </tr>
             </thead>
             <tbody>
-              {analisis.rotacionPorCategoria.map((c) => (
+              {(agruparRotacionPor === "categoria" ? analisis.rotacionPorCategoria : analisis.rotacionPorTalla).map((c) => (
                 <tr key={c.categoria} className="border-b border-gray-50">
                   <td className="py-1.5 px-2 font-medium">{c.categoria}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">{formatoNum(c.stock)}</td>
@@ -338,6 +502,8 @@ export default function PanelInventario() {
           )}
         </Tarjeta>
       </div>
+
+      <PanelMovimientosProducto productos={datos.productos} movimientos={datos.movimientos} />
 
       {/* Movimientos recientes (detalle) */}
       <Tarjeta titulo="Movimientos recientes de bodega" icono={<Warehouse size={16} className="text-emerald-700" />}>
