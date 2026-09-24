@@ -232,6 +232,7 @@ export default function PanelInventario() {
   const [rangoHasta, setRangoHasta] = useState("");
   const [modalAgotadosAbierto, setModalAgotadosAbierto] = useState(false);
   const [productoDesglose, setProductoDesglose] = useState(null); // grupo de "Más vendidos" elegido para ver tallas
+  const [grupoDesglose, setGrupoDesglose] = useState(null); // fila de "Rotación por categoría/talla" elegida
   const [agruparRotacionPor, setAgruparRotacionPor] = useState("categoria"); // 'categoria' | 'talla'
 
   useEffect(() => {
@@ -294,13 +295,21 @@ export default function PanelInventario() {
     }
     const ventasPorTalla = [...porTalla.entries()].map(([talla, unidades]) => ({ talla, unidades })).sort((a, b) => b.unidades - a.unidades).slice(0, 15);
 
-    // --- Rotación por categoría ---
-    const categorias = new Map(); // categoria -> { stock, vendido, costo }
+    // --- Rotación por categoría (con el detalle de productos/tallas que la
+    // componen, para el modal que se abre al tocar una fila) ---
+    const rotacionProducto = (p) => {
+      const vendido = salidasPorProducto.get(p.id) || 0;
+      const stock = Math.max(0, p.stockActual);
+      return { id: p.id, nombre: p.nombre, talla: p.talla || "Sin talla", categoria: p.categoria, stockActual: stock, vendido, rotacion: stock > 0 ? vendido / stock : vendido > 0 ? Infinity : 0 };
+    };
+
+    const categorias = new Map(); // categoria -> { stock, vendido, costo, productos }
     for (const p of productos) {
-      if (!categorias.has(p.categoria)) categorias.set(p.categoria, { categoria: p.categoria, stock: 0, vendido: 0, valorStock: 0 });
+      if (!categorias.has(p.categoria)) categorias.set(p.categoria, { categoria: p.categoria, stock: 0, vendido: 0, valorStock: 0, productos: [] });
       const c = categorias.get(p.categoria);
       c.stock += Math.max(0, p.stockActual);
       c.valorStock += Math.max(0, p.stockActual) * p.costo;
+      c.productos.push(rotacionProducto(p));
     }
     for (const [id, unidades] of salidasPorProducto) {
       const p = productoPorId.get(id);
@@ -308,17 +317,18 @@ export default function PanelInventario() {
       categorias.get(p.categoria).vendido += unidades;
     }
     const rotacionPorCategoria = [...categorias.values()]
-      .map((c) => ({ ...c, rotacion: c.stock > 0 ? c.vendido / c.stock : c.vendido > 0 ? Infinity : 0 }))
+      .map((c) => ({ ...c, rotacion: c.stock > 0 ? c.vendido / c.stock : c.vendido > 0 ? Infinity : 0, productos: c.productos.sort((a, b) => b.vendido - a.vendido) }))
       .sort((a, b) => b.vendido - a.vendido);
 
     // --- Rotación por talla (misma cuenta, agrupada por talla en vez de categoría) ---
     const tallas = new Map();
     for (const p of productos) {
       const talla = p.talla || "Sin talla";
-      if (!tallas.has(talla)) tallas.set(talla, { categoria: talla, stock: 0, vendido: 0, valorStock: 0 });
+      if (!tallas.has(talla)) tallas.set(talla, { categoria: talla, stock: 0, vendido: 0, valorStock: 0, productos: [] });
       const t = tallas.get(talla);
       t.stock += Math.max(0, p.stockActual);
       t.valorStock += Math.max(0, p.stockActual) * p.costo;
+      t.productos.push(rotacionProducto(p));
     }
     for (const [id, unidades] of salidasPorProducto) {
       const p = productoPorId.get(id);
@@ -326,7 +336,7 @@ export default function PanelInventario() {
       tallas.get(p.talla || "Sin talla").vendido += unidades;
     }
     const rotacionPorTalla = [...tallas.values()]
-      .map((t) => ({ ...t, rotacion: t.stock > 0 ? t.vendido / t.stock : t.vendido > 0 ? Infinity : 0 }))
+      .map((t) => ({ ...t, rotacion: t.stock > 0 ? t.vendido / t.stock : t.vendido > 0 ? Infinity : 0, productos: t.productos.sort((a, b) => b.vendido - a.vendido) }))
       .sort((a, b) => b.vendido - a.vendido);
 
     // --- Reabastecimientos recientes (por producto, en el período) ---
@@ -498,8 +508,12 @@ export default function PanelInventario() {
             </thead>
             <tbody>
               {(agruparRotacionPor === "categoria" ? analisis.rotacionPorCategoria : analisis.rotacionPorTalla).map((c) => (
-                <tr key={c.categoria} className="border-b border-gray-50">
-                  <td className="py-1.5 px-2 font-medium">{c.categoria}</td>
+                <tr
+                  key={c.categoria}
+                  onClick={() => setGrupoDesglose({ ...c, agrupadoPor: agruparRotacionPor })}
+                  className="border-b border-gray-50 cursor-pointer hover:bg-gray-50"
+                >
+                  <td className="py-1.5 px-2 font-medium text-emerald-700 hover:underline">{c.categoria}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">{formatoNum(c.stock)}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums">{formatoNum(c.vendido)}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">{formatoCOP(c.valorStock)}</td>
@@ -511,7 +525,7 @@ export default function PanelInventario() {
             </tbody>
           </table>
         </div>
-        <p className="text-[11px] text-gray-400 mt-2">Rotación = unidades vendidas en el período ÷ stock actual. 1.00× significa que vendiste el equivalente a todo el stock que tienes hoy.</p>
+        <p className="text-[11px] text-gray-400 mt-2">Rotación = unidades vendidas en el período ÷ stock actual. 1.00× significa que vendiste el equivalente a todo el stock que tienes hoy. Toca una fila para ver el detalle de productos y tallas.</p>
       </Tarjeta>
 
       {/* Reabastecimientos + Agotados */}
@@ -601,6 +615,10 @@ export default function PanelInventario() {
       {productoDesglose && (
         <ModalDesgloseTallas producto={productoDesglose} onCerrar={() => setProductoDesglose(null)} />
       )}
+
+      {grupoDesglose && (
+        <ModalDesgloseGrupo grupo={grupoDesglose} onCerrar={() => setGrupoDesglose(null)} />
+      )}
     </div>
   );
 }
@@ -643,6 +661,72 @@ function ModalDesgloseTallas({ producto, onCerrar }) {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -----------------------------------------------------------------------
+   Desglose de una fila de "Rotación por categoría/talla" — qué productos
+   (y qué tallas) la componen, con buscador porque una categoría puede
+   tener decenas de referencias.
+----------------------------------------------------------------------- */
+function ModalDesgloseGrupo({ grupo, onCerrar }) {
+  const [buscar, setBuscar] = useState("");
+  const otraColumna = grupo.agrupadoPor === "categoria" ? "Talla" : "Categoría";
+  const filtrados = useMemo(() => {
+    const q = buscar.trim().toLowerCase();
+    if (!q) return grupo.productos;
+    return grupo.productos.filter((p) => p.nombre.toLowerCase().includes(q) || p.talla.toLowerCase().includes(q) || p.categoria.toLowerCase().includes(q));
+  }, [grupo.productos, buscar]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <div>
+            <h3 className="font-semibold">{grupo.categoria}</h3>
+            <p className="text-xs text-gray-400">{grupo.productos.length} referencias · {formatoNum(grupo.vendido)} unidades vendidas en el período</p>
+          </div>
+          <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100 flex-shrink-0"><X size={16} /></button>
+        </div>
+        <div className="px-5 pt-4 pb-2">
+          <input
+            type="text" autoFocus placeholder="Buscar por nombre, talla o categoría…"
+            value={buscar} onChange={(e) => setBuscar(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+        <div className="overflow-y-auto px-5 pb-5 flex-1">
+          {filtrados.length ? (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-xs text-gray-400 border-b border-gray-200">
+                  <th className="text-left font-medium py-2">Producto</th>
+                  <th className="text-left font-medium py-2">{otraColumna}</th>
+                  <th className="text-right font-medium py-2">Stock actual</th>
+                  <th className="text-right font-medium py-2">Vendido</th>
+                  <th className="text-right font-medium py-2">Rotación</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtrados.map((p) => (
+                  <tr key={p.id} className="border-b border-gray-50">
+                    <td className="py-1.5 pr-2 truncate max-w-[220px]" title={p.nombre}>{p.nombre}</td>
+                    <td className="py-1.5 pr-2 text-gray-500">{grupo.agrupadoPor === "categoria" ? p.talla : p.categoria}</td>
+                    <td className={`py-1.5 text-right tabular-nums ${p.stockActual <= 0 ? "text-red-600 font-medium" : "text-gray-700"}`}>{formatoNum(p.stockActual)}</td>
+                    <td className="py-1.5 text-right tabular-nums">{formatoNum(p.vendido)}</td>
+                    <td className={`py-1.5 text-right tabular-nums font-semibold ${p.rotacion === 0 ? "text-gray-300" : p.rotacion >= 1 ? "text-green-700" : "text-amber-600"}`}>
+                      {p.rotacion === Infinity ? "∞" : `${p.rotacion.toFixed(2)}×`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-6">Sin resultados para "{buscar}".</p>
+          )}
         </div>
       </div>
     </div>
