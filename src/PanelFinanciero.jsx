@@ -28,7 +28,7 @@ import {
   TrendingUp, TrendingDown, Wallet, Target,
   CalendarDays, FileText, Percent, Package, Table2, X,
   SlidersHorizontal, RefreshCw, Home, Crown, Settings, Warehouse, LayoutDashboard,
-  Clock, CheckCircle2,
+  Clock, CheckCircle2, Receipt,
 } from "lucide-react";
 import PanelInventario from "./PanelInventario";
 
@@ -121,11 +121,13 @@ function generarRegistrosSimulados() {
     const costoVentas = Math.round(ventasBrutas * pctCosto);
     const gastosFijos = 420000 + Math.round(aleatorio() * 30000);
     const gastosVariables = Math.round(ventasBrutas * (0.045 + aleatorio() * 0.02));
+    const ticketPromedio = 55000 + aleatorio() * 20000; // valor promedio por factura, solo para la simulación
+    const numeroVentas = Math.max(1, Math.round(ventasBrutas / ticketPromedio));
 
     registros.push({
       fecha: fecha.toISOString().slice(0, 10),
       ventasBrutas, efectivo, tarjetas, transferencias, addi,
-      costoVentas, gastosFijos, gastosVariables,
+      costoVentas, gastosFijos, gastosVariables, numeroVentas,
     });
   }
   return registros;
@@ -158,7 +160,8 @@ function sumarRegistros(lista) {
     costoVentas: acc.costoVentas + r.costoVentas,
     gastosFijos: acc.gastosFijos + r.gastosFijos,
     gastosVariables: acc.gastosVariables + r.gastosVariables,
-  }), { ventasBrutas:0, efectivo:0, tarjetas:0, transferencias:0, addi:0, costoVentas:0, gastosFijos:0, gastosVariables:0 });
+    numeroVentas: acc.numeroVentas + (r.numeroVentas || 0),
+  }), { ventasBrutas:0, efectivo:0, tarjetas:0, transferencias:0, addi:0, costoVentas:0, gastosFijos:0, gastosVariables:0, numeroVentas:0 });
 }
 
 function calcularPyG(totales) {
@@ -173,6 +176,7 @@ function calcularPyG(totales) {
 const formatoCOP = (valor) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(valor || 0);
 const formatoPct = (valor, dec = 1) => `${valor >= 0 ? "+" : "-"}${Math.abs(valor).toFixed(dec)}%`;
+const formatoNumeroVentas = (valor) => new Intl.NumberFormat("es-CO").format(Math.round(valor || 0));
 const formatoFechaCorta = (iso) => { const [, m, d] = iso.split("-"); return `${parseInt(d,10)} ${NOMBRES_MES[parseInt(m,10)-1]}`; };
 const deltaPct = (actual, anterior) => (anterior ? ((actual - anterior) / Math.abs(anterior)) * 100 : 0);
 const sumarMeses = (iso, delta) => {
@@ -993,6 +997,8 @@ export default function PanelFinanciero() {
           delta={pygActual.margenNeto - pygAnterior.margenNeto} deltaEtiqueta={`pts. ${datos.etiquetaAnterior}`} />
         <TarjetaKPI etiqueta={`Vs. ${datos.etiquetaAnoAnterior}`} valor={formatoCOP(pygActual.ventasBrutas)} Icono={Target}
           delta={deltaPct(pygActual.ventasBrutas, pygAnoAnterior.ventasBrutas)} deltaEtiqueta="interanual" />
+        <TarjetaKPI etiqueta={`Facturas ${etiquetaPeriodo}`} valor={formatoNumeroVentas(pygActual.numeroVentas)} Icono={Receipt}
+          delta={deltaPct(pygActual.numeroVentas, pygAnterior.numeroVentas)} deltaEtiqueta={datos.etiquetaAnterior} />
       </section>
 
       {/* Gráficos principales */}
@@ -1134,6 +1140,7 @@ export default function PanelFinanciero() {
           fecha={fechaDiaActivo}
           titulo={tituloPeriodo}
           lineas={detalleVentas.filter((l) => l.fecha === fechaDiaActivo)}
+          numeroVentas={pygActual.numeroVentas}
           onCerrar={() => setModalDetalleAbierto(false)}
         />
       )}
@@ -1208,7 +1215,7 @@ function ModalConfigurarGastos({ onCerrar, gastosFijosMensuales, setGastosFijosM
    precio — se abre al hacer clic en el valor de "Ventas brutas del día"
    (botón "Venta hoy" o cualquier día puntual del selector de período).
 ----------------------------------------------------------------------- */
-function ModalDetalleVenta({ fecha, titulo, lineas, onCerrar }) {
+function ModalDetalleVenta({ fecha, titulo, lineas, numeroVentas, onCerrar }) {
   const ordenadas = [...lineas].sort((a, b) => b.subtotal - a.subtotal);
   const totalUnidades = ordenadas.reduce((s, l) => s + l.cantidad, 0);
   const totalVenta = ordenadas.reduce((s, l) => s + l.subtotal, 0);
@@ -1220,7 +1227,8 @@ function ModalDetalleVenta({ fecha, titulo, lineas, onCerrar }) {
           <h3 className="font-semibold flex items-center gap-2"><Package size={17} className="text-emerald-700" />Detalle de venta — {titulo}</h3>
           <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
         </div>
-        <div className="px-5 pt-4 pb-2 flex items-center gap-4 text-sm text-gray-500">
+        <div className="px-5 pt-4 pb-2 flex items-center gap-4 text-sm text-gray-500 flex-wrap">
+          <span><b className="text-gray-900">{formatoNumeroVentas(numeroVentas)}</b> facturas</span>
           <span><b className="text-gray-900">{ordenadas.length}</b> referencias</span>
           <span><b className="text-gray-900">{totalUnidades}</b> unidades</span>
           <span className="ml-auto font-semibold text-gray-900 tabular-nums">{formatoCOP(totalVenta)}</span>

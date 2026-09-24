@@ -196,7 +196,7 @@ async function main() {
   const porDia = new Map(); // fecha -> registro
   const asegurarDia = (fecha) => {
     if (!porDia.has(fecha)) {
-      porDia.set(fecha, { fecha, ventasBrutas: 0, efectivo: 0, tarjetas: 0, transferencias: 0, addi: 0, otros: 0, costoVentas: 0, gastosFijos: 0, gastosVariables: 0 });
+      porDia.set(fecha, { fecha, ventasBrutas: 0, efectivo: 0, tarjetas: 0, transferencias: 0, addi: 0, otros: 0, costoVentas: 0, gastosFijos: 0, gastosVariables: 0, numeroVentas: 0 });
     }
     return porDia.get(fecha);
   };
@@ -204,6 +204,7 @@ async function main() {
   for (const orden of ordenes) {
     const fecha = fechaPorOrden.get(orden.id);
     asegurarDia(fecha).ventasBrutas += orden.amount_total;
+    asegurarDia(fecha).numeroVentas += 1; // 1 orden de POS = 1 factura/venta
   }
   for (const pago of pagos) {
     const fecha = fechaPorOrden.get(pago.pos_order_id?.[0]);
