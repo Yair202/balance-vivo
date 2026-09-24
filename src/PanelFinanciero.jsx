@@ -650,7 +650,10 @@ export default function PanelFinanciero() {
   };
 
   const [filtro, setFiltro] = useState("mensual"); // 'diario' | 'mensual' | 'anual' (granularidad del gráfico de tendencia)
-  const [metaMensual, setMetaMensual] = useState(120000000);
+  // Meta de ventas: por defecto se calcula sola (mismo mes del año pasado +
+  // 20%). Si el usuario la edita a mano, esa cifra manda — pero solo para
+  // el mes que está viendo; al cambiar de mes vuelve a calcularse sola.
+  const [metaMensualOverride, setMetaMensualOverride] = useState(null);
   const [modalGastosAbierto, setModalGastosAbierto] = useState(false);
 
   // Gastos fijos y variables: Odoo (POS) no los trae, así que se configuran
@@ -701,6 +704,11 @@ export default function PanelFinanciero() {
   const nombreMesCap = mesActivo ? NOMBRES_MES[mesActivo - 1].charAt(0).toUpperCase() + NOMBRES_MES[mesActivo - 1].slice(1) : "";
   const tituloPeriodo = nivelActivo === "dia" ? `${diaActivo} ${nombreMesCap} ${anoActivo}` : nivelActivo === "mes" ? `${nombreMesCap} ${anoActivo}` : anoActivo;
   const fechaDiaActivo = diaActivo ? `${anoActivo}-${String(mesActivo).padStart(2, "0")}-${String(diaActivo).padStart(2, "0")}` : null;
+
+  // Si el usuario ajustó la meta a mano y luego cambia de mes, se vuelve a
+  // calcular sola para el mes nuevo (el ajuste manual era solo para el mes
+  // que estaba viendo).
+  useEffect(() => { setMetaMensualOverride(null); }, [anoActivo, mesActivo]);
 
   const pad2 = (n) => String(n).padStart(2, "0");
   const diasEnMesDe = (fechaIso) => new Date(Number(fechaIso.slice(0, 4)), Number(fechaIso.slice(5, 7)), 0).getDate();
@@ -775,6 +783,13 @@ export default function PanelFinanciero() {
     }
 
     const proyeccion = (pygActual.ventasBrutas / diasTranscurridos) * diasEnMes;
+
+    // Meta automática: mismo período del año anterior + 20%. Si no hay
+    // venta el año pasado para comparar, no hay base — se deja en 0 y el
+    // usuario tiene que poner una meta a mano.
+    const metaAutomatica = Math.round(pygAnoAnterior.ventasBrutas * 1.2);
+    const metaMensual = metaMensualOverride ?? metaAutomatica;
+
     const cumplimiento = metaMensual ? (pygActual.ventasBrutas / metaMensual) * 100 : 0;
     const proyeccionVsMeta = metaMensual ? (proyeccion / metaMensual) * 100 : 0;
 
@@ -834,8 +849,9 @@ export default function PanelFinanciero() {
       ultimaFecha, pygActual, pygAnterior, pygAnoAnterior, diasEnMes, diasTranscurridos,
       etiquetaAnterior, etiquetaAnoAnterior,
       proyeccion, cumplimiento, proyeccionVsMeta, serieLinea, comparativoMensual, metodosPago, composicionVenta,
+      metaMensual, metaAutomatica,
     };
-  }, [infoRango, filtro, metaMensual, anoActivo, mesActivo, diaActivo, nivelActivo, diasEnMesActivo, gastosFijosMensuales, pctGastosVariables]);
+  }, [infoRango, filtro, metaMensualOverride, anoActivo, mesActivo, diaActivo, nivelActivo, diasEnMesActivo, gastosFijosMensuales, pctGastosVariables]);
 
   const { pygActual, pygAnterior, pygAnoAnterior } = datos;
 
@@ -1030,17 +1046,31 @@ export default function PanelFinanciero() {
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col gap-5">
             <h2 className="text-sm font-semibold flex items-center gap-2"><Target size={16} className="text-emerald-700" />Proyección y meta del mes</h2>
             <div>
-              <label className="text-xs font-semibold text-gray-500 block mb-1">Meta de ventas mensual</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-gray-500">Meta de ventas mensual</label>
+                {metaMensualOverride !== null && (
+                  <button onClick={() => setMetaMensualOverride(null)} className="text-xs font-semibold text-emerald-700 hover:underline">
+                    Usar automática
+                  </button>
+                )}
+              </div>
               <input
-                type="number" value={metaMensual}
-                onChange={(e) => setMetaMensual(Math.max(0, Number(e.target.value) || 0))}
+                type="number" value={datos.metaMensual}
+                onChange={(e) => setMetaMensualOverride(Math.max(0, Number(e.target.value) || 0))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm tabular-nums"
               />
+              <p className="text-[11px] text-gray-400 mt-1">
+                {metaMensualOverride !== null
+                  ? "Ajustada a mano para este mes."
+                  : datos.metaAutomatica > 0
+                    ? <>Calculada sola: {formatoCOP(pygAnoAnterior.ventasBrutas)} del mismo mes del año pasado + 20%.</>
+                    : "No hay venta del mismo mes del año pasado para calcularla sola — ajústala a mano."}
+              </p>
             </div>
             <Medidor porcentaje={datos.cumplimiento} etiqueta={`Cumplimiento (día ${datos.diasTranscurridos} de ${datos.diasEnMes})`}
-              valorTexto={formatoCOP(pygActual.ventasBrutas)} metaTexto={formatoCOP(metaMensual)} />
+              valorTexto={formatoCOP(pygActual.ventasBrutas)} metaTexto={formatoCOP(datos.metaMensual)} />
             <Medidor porcentaje={datos.proyeccionVsMeta} etiqueta="Proyección a fin de mes (run rate)"
-              valorTexto={formatoCOP(datos.proyeccion)} metaTexto={formatoCOP(metaMensual)} />
+              valorTexto={formatoCOP(datos.proyeccion)} metaTexto={formatoCOP(datos.metaMensual)} />
             <div className="rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-gray-600 flex items-start gap-2">
               <Target size={15} className="text-amber-700 mt-0.5 flex-shrink-0" />
               <span>Al ritmo actual, el mes cerraría en <b className="tabular-nums">{formatoCOP(datos.proyeccion)}</b> ({formatoPct(datos.proyeccionVsMeta - 100)} frente a la meta).</span>
