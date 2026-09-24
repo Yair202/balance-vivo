@@ -107,12 +107,14 @@ function generarRegistrosSimulados() {
 
     const pctEfectivo = 0.34 + aleatorio() * 0.08;
     const pctTransferencia = 0.24 + aleatorio() * 0.07;
-    const pctTarjetas = Math.max(0.15, 1 - pctEfectivo - pctTransferencia);
-    const suma = pctEfectivo + pctTransferencia + pctTarjetas;
+    const pctAddi = 0.08 + aleatorio() * 0.05; // ADDI: crédito a mes vencido, aparte de tarjetas
+    const pctTarjetas = Math.max(0.1, 1 - pctEfectivo - pctTransferencia - pctAddi);
+    const suma = pctEfectivo + pctTransferencia + pctAddi + pctTarjetas;
 
     const efectivo = Math.round((ventasBrutas * pctEfectivo) / suma);
     const transferencias = Math.round((ventasBrutas * pctTransferencia) / suma);
-    const tarjetas = ventasBrutas - efectivo - transferencias;
+    const addi = Math.round((ventasBrutas * pctAddi) / suma);
+    const tarjetas = ventasBrutas - efectivo - transferencias - addi;
 
     const pctCosto = 0.55 + aleatorio() * 0.05; // costo de ventas ~55-60%
     const costoVentas = Math.round(ventasBrutas * pctCosto);
@@ -121,7 +123,7 @@ function generarRegistrosSimulados() {
 
     registros.push({
       fecha: fecha.toISOString().slice(0, 10),
-      ventasBrutas, efectivo, tarjetas, transferencias,
+      ventasBrutas, efectivo, tarjetas, transferencias, addi,
       costoVentas, gastosFijos, gastosVariables,
     });
   }
@@ -151,10 +153,11 @@ function sumarRegistros(lista) {
     efectivo: acc.efectivo + r.efectivo,
     tarjetas: acc.tarjetas + r.tarjetas,
     transferencias: acc.transferencias + r.transferencias,
+    addi: acc.addi + (r.addi || 0),
     costoVentas: acc.costoVentas + r.costoVentas,
     gastosFijos: acc.gastosFijos + r.gastosFijos,
     gastosVariables: acc.gastosVariables + r.gastosVariables,
-  }), { ventasBrutas:0, efectivo:0, tarjetas:0, transferencias:0, costoVentas:0, gastosFijos:0, gastosVariables:0 });
+  }), { ventasBrutas:0, efectivo:0, tarjetas:0, transferencias:0, addi:0, costoVentas:0, gastosFijos:0, gastosVariables:0 });
 }
 
 function calcularPyG(totales) {
@@ -707,6 +710,7 @@ export default function PanelFinanciero() {
       { nombre: "Efectivo", valor: pygActual.efectivo },
       { nombre: "Tarjetas", valor: pygActual.tarjetas },
       { nombre: "Transferencias", valor: pygActual.transferencias },
+      { nombre: "ADDI (mes vencido)", valor: pygActual.addi || 0 },
     ];
     const composicionVenta = [
       { nombre: "Costo de ventas", valor: pygActual.costoVentas },

@@ -121,10 +121,13 @@ async function main() {
   const camposPosOrder = await executeKw("pos.order", "fields_get", [], { attributes: ["type"] });
   const esquemaNuevo = "payment_ids" in camposPosOrder;
 
+  // ADDI queda SIEMPRE aparte (nunca en "tarjetas") — son pagos con
+  // desembolso a mes vencido, el usuario los quiere controlar por separado.
   const clasificarMetodo = (nombre) => {
     const n = (nombre || "").toLowerCase();
+    if (/(^|[^a-z])addi([^a-z]|$)/.test(n)) return "addi";
     if (/(efect|cash|caja)/.test(n)) return "efectivo";
-    if (/(tarjet|card|datafono|dataphone|credit|debit|addi|sistecredito)/.test(n)) return "tarjetas";
+    if (/(tarjet|card|datafono|dataphone|credit|debit|sistecredito)/.test(n)) return "tarjetas";
     if (/(transfer|nequi|daviplata|bancolombia|pse|consignaci|banco|daviv|bbva|bogota|occidente|popular|caja\s?social|colpatria|av\s?villas)/.test(n)) return "transferencias";
     return "otros";
   };
@@ -193,7 +196,7 @@ async function main() {
   const porDia = new Map(); // fecha -> registro
   const asegurarDia = (fecha) => {
     if (!porDia.has(fecha)) {
-      porDia.set(fecha, { fecha, ventasBrutas: 0, efectivo: 0, tarjetas: 0, transferencias: 0, otros: 0, costoVentas: 0, gastosFijos: 0, gastosVariables: 0 });
+      porDia.set(fecha, { fecha, ventasBrutas: 0, efectivo: 0, tarjetas: 0, transferencias: 0, addi: 0, otros: 0, costoVentas: 0, gastosFijos: 0, gastosVariables: 0 });
     }
     return porDia.get(fecha);
   };
