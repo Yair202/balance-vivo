@@ -75,13 +75,20 @@ function TarjetaKPI({ etiqueta, valor, Icono, tono = "normal", onClick }) {
   );
 }
 
-function BarraHorizontal({ datos, campoEtiqueta, campoValor, formato = formatoNum, colorPorIndice }) {
+function BarraHorizontal({ datos, campoEtiqueta, campoValor, formato = formatoNum, colorPorIndice, onClickItem }) {
   const max = Math.max(...datos.map((d) => d[campoValor]), 1);
+  const Fila = onClickItem ? "button" : "div";
   return (
     <div className="flex flex-col gap-2.5">
       {datos.map((d, i) => (
-        <div key={d.id ?? d[campoEtiqueta]} className="flex items-center gap-3">
-          <div className="w-32 sm:w-40 text-xs text-gray-600 truncate" title={d[campoEtiqueta]}>{d[campoEtiqueta]}</div>
+        <Fila
+          key={d.id ?? d[campoEtiqueta]}
+          onClick={onClickItem ? () => onClickItem(d) : undefined}
+          className={`flex items-center gap-3 w-full text-left ${onClickItem ? "cursor-pointer group" : ""}`}
+        >
+          <div className={`w-32 sm:w-40 text-xs truncate ${onClickItem ? "text-gray-600 group-hover:text-emerald-700 group-hover:underline" : "text-gray-600"}`} title={d[campoEtiqueta]}>
+            {d[campoEtiqueta]}
+          </div>
           <div className="flex-1 h-5 bg-gray-100 rounded-md overflow-hidden">
             <div
               className="h-full rounded-md flex items-center justify-end px-2"
@@ -90,7 +97,7 @@ function BarraHorizontal({ datos, campoEtiqueta, campoValor, formato = formatoNu
               <span className="text-[10px] font-semibold text-white tabular-nums">{formato(d[campoValor])}</span>
             </div>
           </div>
-        </div>
+        </Fila>
       ))}
     </div>
   );
@@ -220,6 +227,7 @@ export default function PanelInventario() {
   const [error, setError] = useState(false);
   const [periodo, setPeriodo] = useState(90);
   const [modalAgotadosAbierto, setModalAgotadosAbierto] = useState(false);
+  const [productoDesglose, setProductoDesglose] = useState(null); // grupo de "Más vendidos" elegido para ver tallas
   const [agruparRotacionPor, setAgruparRotacionPor] = useState("categoria"); // 'categoria' | 'talla'
 
   useEffect(() => {
@@ -249,13 +257,20 @@ export default function PanelInventario() {
     const salidasPorProducto = sumarPorProducto(movsPeriodo, "salida");
     const entradasPorProducto = sumarPorProducto(movsPeriodo, "entrada");
 
-    // --- Más vendidos ---
-    const masVendidos = [...salidasPorProducto.entries()]
-      .map(([id, unidades]) => {
-        const p = productoPorId.get(id);
-        return p ? { id, nombre: p.nombre, categoria: p.categoria, talla: p.talla, unidades, ingresos: unidades * p.precioVenta } : null;
-      })
-      .filter(Boolean)
+    // --- Más vendidos (agrupado por NOMBRE de producto, no por variante —
+    // así "JEANS OCHENTERO" suma todas sus tallas en una sola barra; el
+    // desglose por talla se ve al hacer clic, ver ModalDesgloseTallas) ---
+    const porNombre = new Map();
+    for (const [id, unidades] of salidasPorProducto) {
+      const p = productoPorId.get(id);
+      if (!p) continue;
+      if (!porNombre.has(p.nombre)) porNombre.set(p.nombre, { nombre: p.nombre, categoria: p.categoria, unidades: 0, tallas: [] });
+      const g = porNombre.get(p.nombre);
+      g.unidades += unidades;
+      g.tallas.push({ talla: p.talla || "Sin talla", unidades, ingresos: unidades * p.precioVenta, stockActual: p.stockActual });
+    }
+    const masVendidos = [...porNombre.values()]
+      .map((g) => ({ ...g, tallas: g.tallas.sort((a, b) => b.unidades - a.unidades) }))
       .sort((a, b) => b.unidades - a.unidades)
       .slice(0, 12);
 
@@ -387,7 +402,10 @@ export default function PanelInventario() {
       <div className="grid lg:grid-cols-2 gap-4">
         <Tarjeta titulo="Más vendidos" icono={<TrendingUp size={16} className="text-emerald-700" />}>
           {analisis.masVendidos.length ? (
-            <BarraHorizontal datos={analisis.masVendidos} campoEtiqueta="nombre" campoValor="unidades" />
+            <>
+              <BarraHorizontal datos={analisis.masVendidos} campoEtiqueta="nombre" campoValor="unidades" onClickItem={setProductoDesglose} />
+              <p className="text-[11px] text-gray-400 mt-2.5">Toca una referencia para ver el desglose por talla.</p>
+            </>
           ) : (
             <p className="text-sm text-gray-400 text-center py-6">Sin ventas en este período.</p>
           )}
@@ -541,6 +559,54 @@ export default function PanelInventario() {
       {modalAgotadosAbierto && (
         <ModalAgotados agotados={analisis.agotados} onCerrar={() => setModalAgotadosAbierto(false)} />
       )}
+
+      {productoDesglose && (
+        <ModalDesgloseTallas producto={productoDesglose} onCerrar={() => setProductoDesglose(null)} />
+      )}
+    </div>
+  );
+}
+
+/* -----------------------------------------------------------------------
+   Desglose por talla de una referencia de "Más vendidos" (que agrupa
+   todas las tallas de un mismo producto en una sola barra).
+----------------------------------------------------------------------- */
+function ModalDesgloseTallas({ producto, onCerrar }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <div>
+            <h3 className="font-semibold">{producto.nombre}</h3>
+            <p className="text-xs text-gray-400">{producto.categoria} · {formatoNum(producto.unidades)} unidades vendidas en total</p>
+          </div>
+          <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100 flex-shrink-0"><X size={16} /></button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4 flex-1">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-gray-400 border-b border-gray-200">
+                <th className="text-left font-medium py-2">Talla</th>
+                <th className="text-right font-medium py-2">Vendidas</th>
+                <th className="text-right font-medium py-2">Ingresos</th>
+                <th className="text-right font-medium py-2">Stock actual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {producto.tallas.map((t, i) => (
+                <tr key={i} className="border-b border-gray-50">
+                  <td className="py-1.5 font-medium">{t.talla}</td>
+                  <td className="py-1.5 text-right tabular-nums">{formatoNum(t.unidades)}</td>
+                  <td className="py-1.5 text-right tabular-nums text-gray-500">{formatoCOP(t.ingresos)}</td>
+                  <td className={`py-1.5 text-right tabular-nums font-medium ${t.stockActual <= 0 ? "text-red-600" : "text-gray-700"}`}>
+                    {formatoNum(t.stockActual)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
