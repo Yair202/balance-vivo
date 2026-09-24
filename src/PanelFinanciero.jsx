@@ -28,7 +28,7 @@ import {
   TrendingUp, TrendingDown, Wallet, Target,
   CalendarDays, FileText, Percent, Package, Table2, X,
   SlidersHorizontal, RefreshCw, Home, Crown, Settings, Warehouse, LayoutDashboard,
-  Clock, CheckCircle2, Receipt,
+  Clock, CheckCircle2, Receipt, Coins,
 } from "lucide-react";
 import PanelInventario from "./PanelInventario";
 
@@ -675,6 +675,17 @@ export default function PanelFinanciero() {
   useEffect(() => { try { localStorage.setItem("balance-vivo:gastos-fijos-mensuales", String(gastosFijosMensuales)); } catch {} }, [gastosFijosMensuales]);
   useEffect(() => { try { localStorage.setItem("balance-vivo:pct-gastos-variables", String(pctGastosVariables)); } catch {} }, [pctGastosVariables]);
 
+  // Comisiones: informativo, NO se resta de la utilidad neta (para no duplicar
+  // con "gastos variables") — solo calcula cuánto representarían sobre las
+  // ventas brutas del período que se esté viendo, al % que el usuario ponga.
+  const [pctComisiones, setPctComisiones] = useState(() => {
+    try {
+      const guardado = localStorage.getItem("balance-vivo:pct-comisiones");
+      return guardado === null ? 3 : Number(guardado);
+    } catch { return 3; }
+  });
+  useEffect(() => { try { localStorage.setItem("balance-vivo:pct-comisiones", String(pctComisiones)); } catch {} }, [pctComisiones]);
+
   // Período que se está viendo en TODO el tablero (KPIs, PyG, proyección).
   // undefined = todavía no lo tocó el usuario -> usa el más reciente con datos.
   // anoSel: string 'YYYY' | undefined.  mesSel: 1-12 | null ("todo el año") | undefined (auto).
@@ -683,10 +694,17 @@ export default function PanelFinanciero() {
   const [mesSel, setMesSel] = useState(undefined);
   const [diaSel, setDiaSel] = useState(null);
 
+  // Modo "Rango específico": desde/hasta libres, igual que en Inventario —
+  // cuando está activo, manda por encima de año/mes/día.
+  const [modoPeriodo, setModoPeriodo] = useState("calendario"); // 'calendario' | 'rango'
+  const [rangoDesde, setRangoDesde] = useState("");
+  const [rangoHasta, setRangoHasta] = useState("");
+
   // Botón "Venta hoy": va directo al DÍA de calendario de hoy (distinto de
   // "Volver a hoy", que solo vuelve al mes actual).
   const irAVentaHoy = () => {
     const hoy = new Date();
+    setModoPeriodo("calendario");
     setAnoSel(String(hoy.getFullYear()));
     setMesSel(hoy.getMonth() + 1);
     setDiaSel(hoy.getDate());
@@ -702,11 +720,13 @@ export default function PanelFinanciero() {
   const anoActivo = anoSel ?? infoRango.anoDefecto;
   const mesActivo = mesSel !== undefined ? mesSel : (anoActivo === infoRango.anoDefecto ? infoRango.mesDefecto : null);
   const diaActivo = mesActivo ? diaSel : null; // el día solo aplica dentro de un mes concreto
-  const nivelActivo = diaActivo ? "dia" : mesActivo ? "mes" : "ano";
+  const rangoActivo = modoPeriodo === "rango" && rangoDesde && rangoHasta;
+  const nivelActivo = rangoActivo ? "rango" : diaActivo ? "dia" : mesActivo ? "mes" : "ano";
   const diasEnMesActivo = mesActivo ? new Date(Number(anoActivo), mesActivo, 0).getDate() : 31;
-  const etiquetaPeriodo = nivelActivo === "dia" ? "del día" : nivelActivo === "ano" ? "del año" : "del mes";
+  const etiquetaPeriodo = nivelActivo === "rango" ? "del rango" : nivelActivo === "dia" ? "del día" : nivelActivo === "ano" ? "del año" : "del mes";
   const nombreMesCap = mesActivo ? NOMBRES_MES[mesActivo - 1].charAt(0).toUpperCase() + NOMBRES_MES[mesActivo - 1].slice(1) : "";
-  const tituloPeriodo = nivelActivo === "dia" ? `${diaActivo} ${nombreMesCap} ${anoActivo}` : nivelActivo === "mes" ? `${nombreMesCap} ${anoActivo}` : anoActivo;
+  const tituloPeriodo = nivelActivo === "rango" ? `${formatoFechaCorta(rangoDesde)} – ${formatoFechaCorta(rangoHasta)}`
+    : nivelActivo === "dia" ? `${diaActivo} ${nombreMesCap} ${anoActivo}` : nivelActivo === "mes" ? `${nombreMesCap} ${anoActivo}` : anoActivo;
   const fechaDiaActivo = diaActivo ? `${anoActivo}-${String(mesActivo).padStart(2, "0")}-${String(diaActivo).padStart(2, "0")}` : null;
 
   // Si el usuario ajustó la meta a mano y luego cambia de mes, se vuelve a
@@ -734,17 +754,40 @@ export default function PanelFinanciero() {
 
     // mesReferencia: el mes que ancla los gráficos de tendencia/comparativo.
     // En modo "mes"/"día" es el mes elegido; en modo "año" es diciembre de
-    // ese año (para que el comparativo de 12 meses cubra el año completo).
-    const mesReferencia = mesActivo ? `${anoActivo}-${pad2(mesActivo)}` : `${anoActivo}-12`;
-    const fechaFinReferencia = diaActivo
-      ? `${anoActivo}-${pad2(mesActivo)}-${pad2(diaActivo)}`
-      : mesActivo
-        ? `${anoActivo}-${pad2(mesActivo)}-${pad2(diasEnMesActivo)}`
-        : `${anoActivo}-12-31`;
+    // ese año; en modo "rango" es el mes del final del rango.
+    const mesReferencia = rangoActivo ? claveMes(rangoHasta) : mesActivo ? `${anoActivo}-${pad2(mesActivo)}` : `${anoActivo}-12`;
+    const fechaFinReferencia = rangoActivo
+      ? rangoHasta
+      : diaActivo
+        ? `${anoActivo}-${pad2(mesActivo)}-${pad2(diaActivo)}`
+        : mesActivo
+          ? `${anoActivo}-${pad2(mesActivo)}-${pad2(diasEnMesActivo)}`
+          : `${anoActivo}-12-31`;
 
     let pygActual, pygAnterior, pygAnoAnterior, diasEnMes, diasTranscurridos, etiquetaAnterior, etiquetaAnoAnterior;
 
-    if (nivelActivo === "dia") {
+    if (nivelActivo === "rango") {
+      const desde = rangoDesde, hasta = rangoHasta;
+      const dias = Math.round((new Date(`${hasta}T00:00:00`) - new Date(`${desde}T00:00:00`)) / 86400000) + 1;
+      const regsRango = ordenados.filter((r) => r.fecha >= desde && r.fecha <= hasta);
+
+      const finAnteriorObj = new Date(`${desde}T00:00:00`); finAnteriorObj.setDate(finAnteriorObj.getDate() - 1);
+      const inicioAnteriorObj = new Date(`${desde}T00:00:00`); inicioAnteriorObj.setDate(inicioAnteriorObj.getDate() - dias);
+      const desdeAnterior = inicioAnteriorObj.toISOString().slice(0, 10);
+      const hastaAnterior = finAnteriorObj.toISOString().slice(0, 10);
+      const regsAnterior = ordenados.filter((r) => r.fecha >= desdeAnterior && r.fecha <= hastaAnterior);
+
+      const desdeAnoAnterior = `${Number(desde.slice(0, 4)) - 1}${desde.slice(4)}`;
+      const hastaAnoAnterior = `${Number(hasta.slice(0, 4)) - 1}${hasta.slice(4)}`;
+      const regsAnoAnterior = ordenados.filter((r) => r.fecha >= desdeAnoAnterior && r.fecha <= hastaAnoAnterior);
+
+      const factorFijoRango = (gastosFijosMensuales / 30) * dias;
+      pygActual = calcularPyG(aplicarGastosConfigurados(sumarRegistros(regsRango), factorFijoRango));
+      pygAnterior = calcularPyG(aplicarGastosConfigurados(sumarRegistros(regsAnterior), factorFijoRango));
+      pygAnoAnterior = calcularPyG(aplicarGastosConfigurados(sumarRegistros(regsAnoAnterior), factorFijoRango));
+      diasEnMes = dias; diasTranscurridos = dias;
+      etiquetaAnterior = "vs. período anterior"; etiquetaAnoAnterior = "mismo rango, año anterior";
+    } else if (nivelActivo === "dia") {
       const fecha = fechaFinReferencia;
       const fechaAnteriorObj = new Date(`${fecha}T00:00:00`); fechaAnteriorObj.setDate(fechaAnteriorObj.getDate() - 1);
       const fechaAnterior = fechaAnteriorObj.toISOString().slice(0, 10);
@@ -855,7 +898,7 @@ export default function PanelFinanciero() {
       proyeccion, cumplimiento, proyeccionVsMeta, serieLinea, comparativoMensual, metodosPago, composicionVenta,
       metaMensual, metaAutomatica,
     };
-  }, [infoRango, filtro, metaMensualOverride, anoActivo, mesActivo, diaActivo, nivelActivo, diasEnMesActivo, gastosFijosMensuales, pctGastosVariables]);
+  }, [infoRango, filtro, metaMensualOverride, anoActivo, mesActivo, diaActivo, nivelActivo, diasEnMesActivo, gastosFijosMensuales, pctGastosVariables, rangoActivo, rangoDesde, rangoHasta]);
 
   const { pygActual, pygAnterior, pygAnoAnterior } = datos;
 
@@ -943,42 +986,66 @@ export default function PanelFinanciero() {
       {/* Selector de período: controla TODO el tablero (KPIs, PyG, proyección) */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
         <span className="text-xs font-semibold text-gray-400 flex items-center gap-1.5"><CalendarDays size={14} />Viendo:</span>
-        <select
-          value={anoActivo}
-          onChange={(e) => setAnoSel(e.target.value)}
-          className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium"
-        >
-          {infoRango.anosDisponibles.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <select
-          value={mesActivo === null ? "" : String(mesActivo)}
-          onChange={(e) => { const v = e.target.value; setMesSel(v === "" ? null : Number(v)); setDiaSel(null); }}
-          className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium"
-        >
-          <option value="">Todo el año</option>
-          {NOMBRES_MES.map((nombre, i) => (
-            <option key={nombre} value={i + 1}>{nombre.charAt(0).toUpperCase() + nombre.slice(1)}</option>
-          ))}
-        </select>
-        {mesActivo !== null && (
-          <select
-            value={diaSel === null ? "" : String(diaSel)}
-            onChange={(e) => { const v = e.target.value; setDiaSel(v === "" ? null : Number(v)); }}
-            className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium"
-          >
-            <option value="">Todo el mes</option>
-            {Array.from({ length: diasEnMesActivo }, (_, i) => i + 1).map((d) => <option key={d} value={d}>Día {d}</option>)}
-          </select>
+
+        {modoPeriodo === "calendario" ? (
+          <>
+            <select
+              value={anoActivo}
+              onChange={(e) => setAnoSel(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium"
+            >
+              {infoRango.anosDisponibles.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <select
+              value={mesActivo === null ? "" : String(mesActivo)}
+              onChange={(e) => { const v = e.target.value; setMesSel(v === "" ? null : Number(v)); setDiaSel(null); }}
+              className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium"
+            >
+              <option value="">Todo el año</option>
+              {NOMBRES_MES.map((nombre, i) => (
+                <option key={nombre} value={i + 1}>{nombre.charAt(0).toUpperCase() + nombre.slice(1)}</option>
+              ))}
+            </select>
+            {mesActivo !== null && (
+              <select
+                value={diaSel === null ? "" : String(diaSel)}
+                onChange={(e) => { const v = e.target.value; setDiaSel(v === "" ? null : Number(v)); }}
+                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium"
+              >
+                <option value="">Todo el mes</option>
+                {Array.from({ length: diasEnMesActivo }, (_, i) => i + 1).map((d) => <option key={d} value={d}>Día {d}</option>)}
+              </select>
+            )}
+          </>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input type="date" value={rangoDesde} onChange={(e) => setRangoDesde(e.target.value)} className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm" />
+            <span className="text-gray-400 text-sm">a</span>
+            <input type="date" value={rangoHasta} onChange={(e) => setRangoHasta(e.target.value)} className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm" />
+          </div>
         )}
+
+        <button
+          onClick={() => {
+            if (modoPeriodo === "rango") { setModoPeriodo("calendario"); return; }
+            setModoPeriodo("rango");
+            if (!rangoDesde) setRangoDesde(infoRango.ultimaFecha);
+            if (!rangoHasta) setRangoHasta(infoRango.ultimaFecha);
+          }}
+          className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${modoPeriodo === "rango" ? "bg-emerald-700 text-white border-emerald-700" : "border-gray-300 text-gray-600 hover:bg-gray-100"}`}
+        >
+          Rango específico
+        </button>
+
         <button
           onClick={irAVentaHoy}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border border-emerald-700 text-emerald-700 hover:bg-emerald-50"
         >
           <Target size={14} />Venta hoy
         </button>
-        {(anoSel !== undefined || mesSel !== undefined || diaSel !== null) && (
+        {(modoPeriodo === "rango" || anoSel !== undefined || mesSel !== undefined || diaSel !== null) && (
           <button
-            onClick={() => { setAnoSel(undefined); setMesSel(undefined); setDiaSel(null); }}
+            onClick={() => { setModoPeriodo("calendario"); setAnoSel(undefined); setMesSel(undefined); setDiaSel(null); }}
             className="text-xs font-semibold text-emerald-700 hover:underline ml-1"
           >
             Volver al mes actual
@@ -999,6 +1066,14 @@ export default function PanelFinanciero() {
           delta={deltaPct(pygActual.ventasBrutas, pygAnoAnterior.ventasBrutas)} deltaEtiqueta="interanual" />
         <TarjetaKPI etiqueta={`Facturas ${etiquetaPeriodo}`} valor={formatoNumeroVentas(pygActual.numeroVentas)} Icono={Receipt}
           delta={deltaPct(pygActual.numeroVentas, pygAnterior.numeroVentas)} deltaEtiqueta={datos.etiquetaAnterior} />
+        <TarjetaKPI
+          etiqueta={`Comisiones (${pctComisiones}%) ${etiquetaPeriodo}`}
+          valor={formatoCOP(pygActual.ventasBrutas * (pctComisiones / 100))}
+          Icono={Coins}
+          delta={deltaPct(pygActual.ventasBrutas, pygAnterior.ventasBrutas)}
+          deltaEtiqueta={datos.etiquetaAnterior}
+          onClickValor={() => setModalGastosAbierto(true)}
+        />
       </section>
 
       {/* Gráficos principales */}
@@ -1132,6 +1207,8 @@ export default function PanelFinanciero() {
           setGastosFijosMensuales={setGastosFijosMensuales}
           pctGastosVariables={pctGastosVariables}
           setPctGastosVariables={setPctGastosVariables}
+          pctComisiones={pctComisiones}
+          setPctComisiones={setPctComisiones}
         />
       )}
 
@@ -1154,18 +1231,21 @@ export default function PanelFinanciero() {
    en vez de tener que cargar cada día a mano. Odoo/el POS no trae estos
    datos porque viven en Contabilidad, no en el punto de venta.
 ----------------------------------------------------------------------- */
-function ModalConfigurarGastos({ onCerrar, gastosFijosMensuales, setGastosFijosMensuales, pctGastosVariables, setPctGastosVariables }) {
+function ModalConfigurarGastos({ onCerrar, gastosFijosMensuales, setGastosFijosMensuales, pctGastosVariables, setPctGastosVariables, pctComisiones, setPctComisiones }) {
   const [fijos, setFijos] = useState(String(gastosFijosMensuales));
   const [pctVar, setPctVar] = useState(String(pctGastosVariables));
+  const [pctCom, setPctCom] = useState(String(pctComisiones));
 
-  // Tope de 100% a propósito: es un % de las ventas, no un valor en pesos —
+  // Tope de 100% a propósito: son % de las ventas, no valores en pesos —
   // sin este tope, escribir por error una cifra grande (ej. "1500000"
   // pensando en pesos) dispara la utilidad neta a números absurdos.
   const pctInvalido = Number(pctVar) > 100 || Number(pctVar) < 0;
+  const pctComInvalido = Number(pctCom) > 100 || Number(pctCom) < 0;
 
   const guardar = () => {
     setGastosFijosMensuales(Math.max(0, Number(fijos) || 0));
     setPctGastosVariables(Math.min(100, Math.max(0, Number(pctVar) || 0)));
+    setPctComisiones(Math.min(100, Math.max(0, Number(pctCom) || 0)));
     onCerrar();
   };
 
@@ -1200,9 +1280,23 @@ function ModalConfigurarGastos({ onCerrar, gastosFijosMensuales, setGastosFijosM
               <p className="text-xs text-red-600 mt-1">Debe ser un número entre 0 y 100 — es un porcentaje, no un valor en pesos.</p>
             )}
           </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">Comisiones (% de las ventas — solo informativo, no se resta de la utilidad)</label>
+            <div className="relative">
+              <input
+                type="number" step="0.1" min="0" max="100" value={pctCom}
+                onChange={(e) => setPctCom(e.target.value)}
+                className={`w-full border rounded-lg px-3 py-2 pr-8 text-sm tabular-nums ${pctComInvalido ? "border-red-400 bg-red-50" : "border-gray-300"}`}
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+            </div>
+            {pctComInvalido && (
+              <p className="text-xs text-red-600 mt-1">Debe ser un número entre 0 y 100 — es un porcentaje, no un valor en pesos.</p>
+            )}
+          </div>
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={onCerrar} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-600">Cancelar</button>
-            <button onClick={guardar} disabled={pctInvalido} className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">Guardar</button>
+            <button onClick={guardar} disabled={pctInvalido || pctComInvalido} className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">Guardar</button>
           </div>
         </div>
       </div>
