@@ -28,6 +28,7 @@ import {
   TrendingUp, TrendingDown, Wallet, Target,
   CalendarDays, FileText, Percent, Package, Table2, X,
   SlidersHorizontal, RefreshCw, Home, Crown, Settings, Warehouse, LayoutDashboard,
+  Clock, CheckCircle2,
 } from "lucide-react";
 import PanelInventario from "./PanelInventario";
 
@@ -262,6 +263,116 @@ function FilaPyG({ etiqueta, valor, negativo, destacado, sub }) {
       >
         {negativo ? "− " : ""}{formatoCOP(Math.abs(valor))}
       </span>
+    </div>
+  );
+}
+
+/* -----------------------------------------------------------------------
+   ADDI pendiente por cobrar: ADDI paga el segundo miércoles HÁBIL del mes
+   siguiente al de la venta, y descuenta 6.9% de comisión. Se agrupa lo
+   vendido por ADDI mes a mes y se calcula cuándo entra la plata y cuánto
+   neto — para poder controlar ese flujo de caja diferido.
+   ►► Ojo: "hábil" aquí solo excluye sábados/domingos (el segundo miércoles
+   del mes calendario), no festivos colombianos — si un 2do miércoles cae
+   festivo, la fecha real de pago puede correrse uno o dos días.
+----------------------------------------------------------------------- */
+function segundoMiercolesHabilMesSiguiente(ano, mes) { // mes 1-12, calcula sobre el mes siguiente
+  let m = mes + 1, a = ano;
+  if (m > 12) { m = 1; a += 1; }
+  const miercoles = [];
+  const d = new Date(a, m - 1, 1);
+  while (d.getMonth() === m - 1) {
+    if (d.getDay() === 3) miercoles.push(new Date(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return miercoles[1];
+}
+const PCT_COMISION_ADDI = 0.069;
+
+function PanelAddi({ registros }) {
+  const meses = useMemo(() => {
+    const porMes = new Map();
+    for (const r of registros) {
+      if (!r.addi) continue;
+      const clave = claveMes(r.fecha);
+      porMes.set(clave, (porMes.get(clave) || 0) + r.addi);
+    }
+    const hoy = new Date();
+    return [...porMes.entries()]
+      .map(([clave, vendido]) => {
+        const [ano, mes] = clave.split("-").map(Number);
+        const fechaPago = segundoMiercolesHabilMesSiguiente(ano, mes);
+        const comision = vendido * PCT_COMISION_ADDI;
+        const neto = vendido - comision;
+        return { clave, ano, mes, vendido, comision, neto, fechaPago, pagado: fechaPago < hoy };
+      })
+      .sort((a, b) => b.clave.localeCompare(a.clave));
+  }, [registros]);
+
+  const pendientes = meses.filter((m) => !m.pagado);
+  const totalPendiente = pendientes.reduce((s, m) => s + m.neto, 0);
+  const proximoPago = [...pendientes].sort((a, b) => a.fechaPago - b.fechaPago)[0];
+
+  if (meses.length === 0) return null;
+
+  const formatoFechaPago = (d) => d.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" });
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <h2 className="text-sm font-semibold flex items-center gap-2 mb-1">
+        <Clock size={16} className="text-emerald-700" />ADDI — pendiente por cobrar
+      </h2>
+      <p className="text-xs text-gray-400 mb-4">ADDI paga el segundo miércoles hábil del mes siguiente a la venta, descontando 6,9% de comisión.</p>
+
+      <div className="grid sm:grid-cols-2 gap-3 mb-4">
+        <div className="rounded-lg bg-amber-50 px-3 py-2.5">
+          <div className="text-xs text-gray-500">Total pendiente por cobrar (neto)</div>
+          <div className="text-xl font-semibold tabular-nums">{formatoCOP(totalPendiente)}</div>
+        </div>
+        <div className="rounded-lg bg-gray-50 px-3 py-2.5">
+          <div className="text-xs text-gray-500">Próximo pago</div>
+          {proximoPago ? (
+            <div className="text-sm font-semibold">
+              <span className="tabular-nums">{formatoCOP(proximoPago.neto)}</span>
+              <span className="text-gray-400 font-normal"> · {formatoFechaPago(proximoPago.fechaPago)}</span>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-400">Nada pendiente</div>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-gray-400 border-b border-gray-200">
+              <th className="text-left font-medium py-2 px-2">Mes de venta</th>
+              <th className="text-right font-medium py-2 px-2">Vendido en ADDI</th>
+              <th className="text-right font-medium py-2 px-2">Comisión (6,9%)</th>
+              <th className="text-right font-medium py-2 px-2">Neto a recibir</th>
+              <th className="text-left font-medium py-2 px-2">Fecha de pago</th>
+              <th className="text-left font-medium py-2 px-2">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {meses.slice(0, 12).map((m) => (
+              <tr key={m.clave} className="border-b border-gray-50">
+                <td className="py-1.5 px-2 font-medium">{NOMBRES_MES[m.mes - 1]} {m.ano}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">{formatoCOP(m.vendido)}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-red-600">− {formatoCOP(m.comision)}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums font-semibold">{formatoCOP(m.neto)}</td>
+                <td className="py-1.5 px-2 text-gray-500">{formatoFechaPago(m.fechaPago)}</td>
+                <td className="py-1.5 px-2">
+                  <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${m.pagado ? "bg-gray-100 text-gray-500" : "bg-amber-100 text-amber-700"}`}>
+                    {m.pagado ? <CheckCircle2 size={11} /> : <Clock size={11} />}
+                    {m.pagado ? "Pagado" : "Pendiente"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -965,6 +1076,8 @@ export default function PanelFinanciero() {
           </ResponsiveContainer>
         </div>
       </section>
+
+      <PanelAddi registros={registros} />
 
       <PanelAnalisisPatron registros={registros} />
 
