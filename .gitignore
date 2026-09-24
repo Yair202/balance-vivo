@@ -2,6 +2,8 @@ node_modules
 dist
 .vs
 *.log
+*.log.tmp
+*.log.err.tmp
 .env
 public/datos-ventas.json
 public/datos-detalle-ventas.json
