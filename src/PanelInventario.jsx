@@ -25,7 +25,7 @@ import {
 } from "recharts";
 import {
   Package, PackageX, Layers, Warehouse, TrendingUp, TrendingDown,
-  ArrowDownToLine, ArrowUpFromLine, AlertTriangle, Ruler, X, Search,
+  ArrowDownToLine, ArrowUpFromLine, AlertTriangle, Ruler, X, Search, Settings, ShieldAlert,
 } from "lucide-react";
 
 const formatoCOP = (v) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(v || 0);
@@ -234,6 +234,25 @@ export default function PanelInventario() {
   const [productoDesglose, setProductoDesglose] = useState(null); // grupo de "Más vendidos" elegido para ver tallas
   const [grupoDesglose, setGrupoDesglose] = useState(null); // fila de "Rotación por categoría/talla" elegida
   const [agruparRotacionPor, setAgruparRotacionPor] = useState("categoria"); // 'categoria' | 'talla'
+  const [modalReglasAbierto, setModalReglasAbierto] = useState(false);
+  const [modalAlertasAbierto, setModalAlertasAbierto] = useState(false);
+
+  // Reglas de reabastecimiento: Odoo casi no las trae configuradas (se
+  // revisó y solo 1 de 293 productos las tenía), así que se manejan aquí,
+  // guardadas en este navegador. Un mínimo/máximo por defecto para todo el
+  // catálogo, con la posibilidad de ajustar por categoría.
+  const [minimoDefecto, setMinimoDefecto] = useState(() => {
+    try { const v = localStorage.getItem("balance-vivo:minimo-defecto"); return v === null ? 3 : Number(v); } catch { return 3; }
+  });
+  const [maximoDefecto, setMaximoDefecto] = useState(() => {
+    try { const v = localStorage.getItem("balance-vivo:maximo-defecto"); return v === null ? 15 : Number(v); } catch { return 15; }
+  });
+  const [reglasPorCategoria, setReglasPorCategoria] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("balance-vivo:reglas-por-categoria") || "{}"); } catch { return {}; }
+  });
+  useEffect(() => { try { localStorage.setItem("balance-vivo:minimo-defecto", String(minimoDefecto)); } catch {} }, [minimoDefecto]);
+  useEffect(() => { try { localStorage.setItem("balance-vivo:maximo-defecto", String(maximoDefecto)); } catch {} }, [maximoDefecto]);
+  useEffect(() => { try { localStorage.setItem("balance-vivo:reglas-por-categoria", JSON.stringify(reglasPorCategoria)); } catch {} }, [reglasPorCategoria]);
 
   useEffect(() => {
     fetch("/datos-inventario.json", { cache: "no-store" })
@@ -362,6 +381,18 @@ export default function PanelInventario() {
       .map((p) => ({ ...p, ventasHistoricas: salidasPorProducto.get(p.id) || 0 }))
       .sort((a, b) => b.ventasHistoricas - a.ventasHistoricas);
 
+    // --- Alertas de reabastecimiento: por debajo del mínimo (o en negativo,
+    // que es más urgente todavía — vendiste más de lo que había). ---
+    const reglaDe = (categoria) => reglasPorCategoria[categoria] || { minimo: minimoDefecto, maximo: maximoDefecto };
+    const alertasReabastecimiento = productos
+      .map((p) => {
+        const regla = reglaDe(p.categoria);
+        return { ...p, minimo: regla.minimo, maximo: regla.maximo, negativo: p.stockActual < 0, sugerido: Math.max(0, regla.maximo - p.stockActual) };
+      })
+      .filter((p) => p.stockActual < p.minimo)
+      .sort((a, b) => a.stockActual - b.stockActual); // más negativo/más bajo primero
+    const totalNegativos = productos.filter((p) => p.stockActual < 0).length;
+
     // --- KPIs ---
     const totalSKUs = productos.length;
     const unidadesEnStock = productos.reduce((s, p) => s + Math.max(0, p.stockActual), 0);
@@ -370,9 +401,10 @@ export default function PanelInventario() {
 
     return {
       hoy, masVendidos, ventasPorTalla, rotacionPorCategoria, rotacionPorTalla, reabastecimientos, movimientosRecientes, agotados,
+      alertasReabastecimiento, totalNegativos,
       totalSKUs, unidadesEnStock, valorInventarioCosto, totalAgotados,
     };
-  }, [datos, modoPeriodo, diasPreset, fechaUnica, rangoDesde, rangoHasta]);
+  }, [datos, modoPeriodo, diasPreset, fechaUnica, rangoDesde, rangoHasta, minimoDefecto, maximoDefecto, reglasPorCategoria]);
 
   if (error) {
     return (
@@ -443,6 +475,13 @@ export default function PanelInventario() {
           Icono={PackageX}
           tono={analisis.totalAgotados > 0 ? "alerta" : "normal"}
           onClick={analisis.totalAgotados > 0 ? () => setModalAgotadosAbierto(true) : undefined}
+        />
+        <TarjetaKPI
+          etiqueta="Stock en negativo"
+          valor={formatoNum(analisis.totalNegativos)}
+          Icono={ShieldAlert}
+          tono={analisis.totalNegativos > 0 ? "alerta" : "normal"}
+          onClick={analisis.totalNegativos > 0 ? () => setModalAlertasAbierto(true) : undefined}
         />
       </div>
 
@@ -526,6 +565,59 @@ export default function PanelInventario() {
           </table>
         </div>
         <p className="text-[11px] text-gray-400 mt-2">Rotación = unidades vendidas en el período ÷ stock actual. 1.00× significa que vendiste el equivalente a todo el stock que tienes hoy. Toca una fila para ver el detalle de productos y tallas.</p>
+      </Tarjeta>
+
+      {/* Alertas de reabastecimiento (mínimos/máximos configurables) */}
+      <Tarjeta
+        titulo="Alertas de reabastecimiento"
+        icono={<ShieldAlert size={16} className="text-emerald-700" />}
+        acciones={
+          <div className="flex items-center gap-2">
+            {analisis.alertasReabastecimiento.length > 15 && (
+              <button onClick={() => setModalAlertasAbierto(true)} className="text-xs font-semibold text-emerald-700 hover:underline">
+                Ver las {analisis.alertasReabastecimiento.length} →
+              </button>
+            )}
+            <button onClick={() => setModalReglasAbierto(true)} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border border-gray-300 text-gray-600 hover:bg-gray-100">
+              <Settings size={12} />Configurar reglas
+            </button>
+          </div>
+        }
+      >
+        <p className="text-xs text-gray-400 mb-3">
+          Mínimo por defecto: <b className="text-gray-600">{minimoDefecto}</b> uds · Máximo por defecto: <b className="text-gray-600">{maximoDefecto}</b> uds
+          {Object.keys(reglasPorCategoria).length > 0 && <> · {Object.keys(reglasPorCategoria).length} categoría(s) con regla propia</>}
+        </p>
+        {analisis.alertasReabastecimiento.length ? (
+          <div className="max-h-72 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-xs text-gray-400 border-b border-gray-200">
+                  <th className="text-left font-medium py-1.5">Producto</th>
+                  <th className="text-left font-medium py-1.5">Talla</th>
+                  <th className="text-right font-medium py-1.5">Stock</th>
+                  <th className="text-right font-medium py-1.5">Mínimo</th>
+                  <th className="text-right font-medium py-1.5">Pedir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analisis.alertasReabastecimiento.slice(0, 15).map((p) => (
+                  <tr key={p.id} className="border-b border-gray-50">
+                    <td className="py-1.5 truncate max-w-[180px]" title={p.nombre}>{p.nombre}</td>
+                    <td className="py-1.5 text-gray-500">{p.talla || "—"}</td>
+                    <td className={`py-1.5 text-right tabular-nums font-semibold ${p.negativo ? "text-red-700" : "text-amber-600"}`}>
+                      {p.negativo && <span className="inline-block mr-1">⚠</span>}{formatoNum(p.stockActual)}
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums text-gray-400">{formatoNum(p.minimo)}</td>
+                    <td className="py-1.5 text-right tabular-nums font-medium">{formatoNum(p.sugerido)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-6">Todo el catálogo está por encima de su mínimo 🎉</p>
+        )}
       </Tarjeta>
 
       {/* Reabastecimientos + Agotados */}
@@ -618,6 +710,20 @@ export default function PanelInventario() {
 
       {grupoDesglose && (
         <ModalDesgloseGrupo grupo={grupoDesglose} onCerrar={() => setGrupoDesglose(null)} />
+      )}
+
+      {modalReglasAbierto && (
+        <ModalReglasReabastecimiento
+          categorias={[...new Set(datos.productos.map((p) => p.categoria))].sort()}
+          minimoDefecto={minimoDefecto} setMinimoDefecto={setMinimoDefecto}
+          maximoDefecto={maximoDefecto} setMaximoDefecto={setMaximoDefecto}
+          reglasPorCategoria={reglasPorCategoria} setReglasPorCategoria={setReglasPorCategoria}
+          onCerrar={() => setModalReglasAbierto(false)}
+        />
+      )}
+
+      {modalAlertasAbierto && (
+        <ModalAlertasReabastecimiento alertas={analisis.alertasReabastecimiento} onCerrar={() => setModalAlertasAbierto(false)} />
       )}
     </div>
   );
@@ -777,6 +883,166 @@ function ModalAgotados({ agotados, onCerrar }) {
                     <td className="py-1.5 pr-2 text-gray-500">{p.categoria}</td>
                     <td className="py-1.5 pr-2 text-gray-500">{p.talla || "—"}</td>
                     <td className={`py-1.5 text-right tabular-nums font-medium ${p.ventasHistoricas > 0 ? "text-red-600" : "text-gray-400"}`}>{formatoNum(p.ventasHistoricas)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-6">Sin resultados para "{buscar}".</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -----------------------------------------------------------------------
+   Configurar reglas de reabastecimiento: mínimo/máximo por defecto para
+   todo el catálogo, con la opción de poner una regla propia por categoría
+   (deja el campo vacío para que esa categoría use el valor por defecto).
+----------------------------------------------------------------------- */
+function ModalReglasReabastecimiento({ categorias, minimoDefecto, setMinimoDefecto, maximoDefecto, setMaximoDefecto, reglasPorCategoria, setReglasPorCategoria, onCerrar }) {
+  const [minDef, setMinDef] = useState(String(minimoDefecto));
+  const [maxDef, setMaxDef] = useState(String(maximoDefecto));
+  const [overrides, setOverrides] = useState(() =>
+    Object.fromEntries(categorias.map((c) => [c, { minimo: reglasPorCategoria[c]?.minimo ?? "", maximo: reglasPorCategoria[c]?.maximo ?? "" }]))
+  );
+
+  const actualizarOverride = (cat, campo, valor) => setOverrides((o) => ({ ...o, [cat]: { ...o[cat], [campo]: valor } }));
+
+  const guardar = () => {
+    setMinimoDefecto(Math.max(0, Number(minDef) || 0));
+    setMaximoDefecto(Math.max(0, Number(maxDef) || 0));
+    const nuevasReglas = {};
+    for (const [cat, { minimo, maximo }] of Object.entries(overrides)) {
+      if (minimo !== "" || maximo !== "") {
+        nuevasReglas[cat] = {
+          minimo: minimo !== "" ? Math.max(0, Number(minimo) || 0) : Number(minDef) || 0,
+          maximo: maximo !== "" ? Math.max(0, Number(maximo) || 0) : Number(maxDef) || 0,
+        };
+      }
+    }
+    setReglasPorCategoria(nuevasReglas);
+    onCerrar();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h3 className="font-semibold flex items-center gap-2"><Settings size={17} className="text-emerald-700" />Reglas de reabastecimiento</h3>
+          <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4 flex-1 flex flex-col gap-4">
+          <p className="text-xs text-gray-400">
+            Por debajo del mínimo, la referencia sale en "Alertas de reabastecimiento". La cantidad sugerida a pedir es máximo − stock actual.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1">Mínimo por defecto</label>
+              <input type="number" min="0" value={minDef} onChange={(e) => setMinDef(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm tabular-nums" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1">Máximo por defecto</label>
+              <input type="number" min="0" value={maxDef} onChange={(e) => setMaxDef(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm tabular-nums" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-2">Regla propia por categoría (opcional — vacío usa el valor por defecto)</label>
+            <div className="border border-gray-100 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400 border-b border-gray-200 bg-gray-50">
+                    <th className="text-left font-medium py-1.5 px-2">Categoría</th>
+                    <th className="text-right font-medium py-1.5 px-2">Mínimo</th>
+                    <th className="text-right font-medium py-1.5 px-2">Máximo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categorias.map((cat) => (
+                    <tr key={cat} className="border-b border-gray-50">
+                      <td className="py-1 px-2">{cat}</td>
+                      <td className="py-1 px-2">
+                        <input
+                          type="number" min="0" placeholder={String(minDef)} value={overrides[cat]?.minimo ?? ""}
+                          onChange={(e) => actualizarOverride(cat, "minimo", e.target.value)}
+                          className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs text-right tabular-nums"
+                        />
+                      </td>
+                      <td className="py-1 px-2">
+                        <input
+                          type="number" min="0" placeholder={String(maxDef)} value={overrides[cat]?.maximo ?? ""}
+                          onChange={(e) => actualizarOverride(cat, "maximo", e.target.value)}
+                          className="w-16 border border-gray-200 rounded px-1.5 py-1 text-xs text-right tabular-nums"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-200">
+          <button onClick={onCerrar} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-600">Cancelar</button>
+          <button onClick={guardar} className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold">Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -----------------------------------------------------------------------
+   Listado completo de alertas de reabastecimiento (la tarjeta solo
+   muestra una vista previa) — con buscador.
+----------------------------------------------------------------------- */
+function ModalAlertasReabastecimiento({ alertas, onCerrar }) {
+  const [buscar, setBuscar] = useState("");
+  const filtrados = useMemo(() => {
+    const q = buscar.trim().toLowerCase();
+    if (!q) return alertas;
+    return alertas.filter((p) => p.nombre.toLowerCase().includes(q) || p.categoria.toLowerCase().includes(q) || (p.talla || "").toLowerCase().includes(q));
+  }, [alertas, buscar]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h3 className="font-semibold flex items-center gap-2"><ShieldAlert size={17} className="text-red-600" />Alertas de reabastecimiento ({alertas.length})</h3>
+          <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+        </div>
+        <div className="px-5 pt-4 pb-2">
+          <input
+            type="text" autoFocus placeholder="Buscar por nombre, categoría o talla…"
+            value={buscar} onChange={(e) => setBuscar(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+        <div className="overflow-y-auto px-5 pb-5 flex-1">
+          {filtrados.length ? (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-xs text-gray-400 border-b border-gray-200">
+                  <th className="text-left font-medium py-2">Producto</th>
+                  <th className="text-left font-medium py-2">Categoría</th>
+                  <th className="text-left font-medium py-2">Talla</th>
+                  <th className="text-right font-medium py-2">Stock</th>
+                  <th className="text-right font-medium py-2">Mínimo</th>
+                  <th className="text-right font-medium py-2">Pedir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtrados.map((p) => (
+                  <tr key={p.id} className="border-b border-gray-50">
+                    <td className="py-1.5 pr-2">{p.nombre}</td>
+                    <td className="py-1.5 pr-2 text-gray-500">{p.categoria}</td>
+                    <td className="py-1.5 pr-2 text-gray-500">{p.talla || "—"}</td>
+                    <td className={`py-1.5 text-right tabular-nums font-semibold ${p.negativo ? "text-red-700" : "text-amber-600"}`}>
+                      {p.negativo && <span className="inline-block mr-1">⚠</span>}{formatoNum(p.stockActual)}
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums text-gray-400">{formatoNum(p.minimo)}</td>
+                    <td className="py-1.5 text-right tabular-nums font-medium">{formatoNum(p.sugerido)}</td>
                   </tr>
                 ))}
               </tbody>
