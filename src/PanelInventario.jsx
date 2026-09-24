@@ -225,7 +225,11 @@ function PanelMovimientosProducto({ productos, movimientos }) {
 export default function PanelInventario() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState(false);
-  const [periodo, setPeriodo] = useState(90);
+  const [modoPeriodo, setModoPeriodo] = useState("preset"); // 'preset' | 'dia' | 'rango'
+  const [diasPreset, setDiasPreset] = useState(90);
+  const [fechaUnica, setFechaUnica] = useState("");
+  const [rangoDesde, setRangoDesde] = useState("");
+  const [rangoHasta, setRangoHasta] = useState("");
   const [modalAgotadosAbierto, setModalAgotadosAbierto] = useState(false);
   const [productoDesglose, setProductoDesglose] = useState(null); // grupo de "Más vendidos" elegido para ver tallas
   const [agruparRotacionPor, setAgruparRotacionPor] = useState("categoria"); // 'categoria' | 'talla'
@@ -243,8 +247,15 @@ export default function PanelInventario() {
     const productoPorId = new Map(productos.map((p) => [p.id, p]));
 
     const hoy = movimientos.reduce((max, m) => (m.fecha > max ? m.fecha : max), "0000-00-00");
-    const desde = periodo === 0 ? "0000-00-00" : (() => { const d = new Date(`${hoy}T00:00:00`); d.setDate(d.getDate() - periodo); return d.toISOString().slice(0, 10); })();
-    const movsPeriodo = movimientos.filter((m) => m.fecha >= desde);
+    let desde, hasta = hoy;
+    if (modoPeriodo === "dia" && fechaUnica) {
+      desde = hasta = fechaUnica;
+    } else if (modoPeriodo === "rango" && rangoDesde && rangoHasta) {
+      desde = rangoDesde; hasta = rangoHasta;
+    } else {
+      desde = diasPreset === 0 ? "0000-00-00" : (() => { const d = new Date(`${hoy}T00:00:00`); d.setDate(d.getDate() - diasPreset); return d.toISOString().slice(0, 10); })();
+    }
+    const movsPeriodo = movimientos.filter((m) => m.fecha >= desde && m.fecha <= hasta);
 
     const sumarPorProducto = (lista, tipo) => {
       const mapa = new Map();
@@ -351,7 +362,7 @@ export default function PanelInventario() {
       hoy, masVendidos, ventasPorTalla, rotacionPorCategoria, rotacionPorTalla, reabastecimientos, movimientosRecientes, agotados,
       totalSKUs, unidadesEnStock, valorInventarioCosto, totalAgotados,
     };
-  }, [datos, periodo]);
+  }, [datos, modoPeriodo, diasPreset, fechaUnica, rangoDesde, rangoHasta]);
 
   if (error) {
     return (
@@ -369,18 +380,45 @@ export default function PanelInventario() {
     <div className="flex flex-col gap-5">
       {/* Filtro de período */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
-        <span className="text-xs font-semibold text-gray-400">Movimiento de los últimos:</span>
-        <div className="flex gap-1.5">
+        <span className="text-xs font-semibold text-gray-400">Movimiento de:</span>
+        <div className="flex gap-1.5 flex-wrap">
           {PERIODOS.map((p) => (
             <button
               key={p.valor}
-              onClick={() => setPeriodo(p.valor)}
-              className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${periodo === p.valor ? "bg-emerald-700 text-white border-emerald-700" : "border-gray-300 text-gray-600 hover:bg-gray-100"}`}
+              onClick={() => { setModoPeriodo("preset"); setDiasPreset(p.valor); }}
+              className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${modoPeriodo === "preset" && diasPreset === p.valor ? "bg-emerald-700 text-white border-emerald-700" : "border-gray-300 text-gray-600 hover:bg-gray-100"}`}
             >
               {p.etiqueta}
             </button>
           ))}
+          <button
+            onClick={() => { setModoPeriodo("dia"); if (!fechaUnica) setFechaUnica(analisis.hoy); }}
+            className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${modoPeriodo === "dia" ? "bg-emerald-700 text-white border-emerald-700" : "border-gray-300 text-gray-600 hover:bg-gray-100"}`}
+          >
+            Día específico
+          </button>
+          <button
+            onClick={() => { setModoPeriodo("rango"); if (!rangoDesde) setRangoDesde(analisis.hoy); if (!rangoHasta) setRangoHasta(analisis.hoy); }}
+            className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${modoPeriodo === "rango" ? "bg-emerald-700 text-white border-emerald-700" : "border-gray-300 text-gray-600 hover:bg-gray-100"}`}
+          >
+            Rango
+          </button>
         </div>
+
+        {modoPeriodo === "dia" && (
+          <input
+            type="date" value={fechaUnica} onChange={(e) => setFechaUnica(e.target.value)}
+            className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm"
+          />
+        )}
+        {modoPeriodo === "rango" && (
+          <div className="flex items-center gap-2">
+            <input type="date" value={rangoDesde} onChange={(e) => setRangoDesde(e.target.value)} className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm" />
+            <span className="text-gray-400 text-sm">a</span>
+            <input type="date" value={rangoHasta} onChange={(e) => setRangoHasta(e.target.value)} className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm" />
+          </div>
+        )}
+
         <span className="text-xs text-gray-400 ml-auto">Corte de stock al {analisis.hoy}</span>
       </div>
 
