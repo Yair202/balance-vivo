@@ -21,16 +21,17 @@
  */
 import React, { useState, useMemo, useEffect } from "react";
 import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, LineChart, Line, BarChart, Bar, ComposedChart, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList,
 } from "recharts";
 import {
   TrendingUp, TrendingDown, Wallet, Target,
   CalendarDays, FileText, Percent, Package, Table2, X,
-  SlidersHorizontal, RefreshCw, Home, Crown, Settings, Warehouse, LayoutDashboard,
-  Clock, CheckCircle2, Receipt, Coins,
+  SlidersHorizontal, RefreshCw, Settings, Warehouse, LayoutDashboard,
+  Clock, CheckCircle2, Receipt, Coins, BarChart3, CalendarClock, Gift,
 } from "lucide-react";
 import PanelInventario from "./PanelInventario";
+import logoCorona from "./assets/logo-corona.jpg";
 
 /* =============================================================================
    SECCIÓN 1 — DATOS SIMULADOS (MOCK DATA)
@@ -196,7 +197,7 @@ const COLOR_NEGATIVO = "#b3221c";
 /* =============================================================================
    SECCIÓN 3 — SUB-COMPONENTES DE UI
 ============================================================================= */
-function TarjetaKPI({ etiqueta, valor, Icono, delta, deltaEtiqueta, onClickValor }) {
+function TarjetaKPI({ etiqueta, valor, Icono, delta, deltaEtiqueta, onClickValor, tituloClick = "Ver el detalle de productos vendidos" }) {
   const positivo = delta >= 0;
   const FlechaDelta = positivo ? TrendingUp : TrendingDown;
   return (
@@ -205,7 +206,7 @@ function TarjetaKPI({ etiqueta, valor, Icono, delta, deltaEtiqueta, onClickValor
         <Icono size={16} className="text-emerald-700" />{etiqueta}
       </div>
       {onClickValor ? (
-        <button onClick={onClickValor} title="Ver el detalle de productos vendidos" className="text-2xl font-semibold tabular-nums truncate text-left hover:text-emerald-700 hover:underline underline-offset-4 decoration-2 w-fit">
+        <button onClick={onClickValor} title={tituloClick} className="text-2xl font-semibold tabular-nums truncate text-left hover:text-emerald-700 hover:underline underline-offset-4 decoration-2 w-fit">
           {valor}
         </button>
       ) : (
@@ -600,6 +601,416 @@ function PanelAnalisisPatron({ registros }) {
   );
 }
 
+function PanelProyecciones({ registros }) {
+  const [ajusteEconomico, setAjusteEconomico] = useState(() => {
+    try { return Number(localStorage.getItem("bv_ajuste_economico")) || 0; } catch { return 0; }
+  });
+  const [anoDiciembreSel, setAnoDiciembreSel] = useState(null); // null = automático (año actual)
+
+  useEffect(() => {
+    try { localStorage.setItem("bv_ajuste_economico", String(ajusteEconomico)); } catch { /* localStorage no disponible */ }
+  }, [ajusteEconomico]);
+
+  const analisis = useMemo(() => {
+    if (!registros.length) return null;
+    const ordenados = [...registros].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const ultimaFecha = ordenados[ordenados.length - 1].fecha;
+    const promedioGeneral = ordenados.reduce((s, r) => s + r.ventasBrutas, 0) / ordenados.length;
+
+    // --- Patrón por día de la semana (orden Lunes→Domingo) ---
+    const sumasDia = Array(7).fill(0);
+    const conteosDia = Array(7).fill(0);
+    for (const r of ordenados) {
+      const d = diaSemanaDe(r.fecha);
+      sumasDia[d] += r.ventasBrutas;
+      conteosDia[d]++;
+    }
+    const porDiaSemana = DIAS_SEMANA_CHIPS.map(({ valor }) => {
+      const promedio = conteosDia[valor] ? sumasDia[valor] / conteosDia[valor] : 0;
+      return { dia: valor, nombre: NOMBRES_DIA_SEMANA[valor], promedio, vsPromedio: deltaPct(promedio, promedioGeneral) };
+    });
+    const rankingDias = [...porDiaSemana].filter((d) => d.promedio > 0).sort((a, b) => b.promedio - a.promedio);
+    const mejorDia = rankingDias[0];
+    const peorDia = rankingDias[rankingDias.length - 1];
+
+    // --- Estacionalidad: venta promedio diaria por mes del año (todos los años) ---
+    const sumasMes = Array(12).fill(0);
+    const conteosMes = Array(12).fill(0);
+    for (const r of ordenados) {
+      const m = Number(r.fecha.slice(5, 7)) - 1;
+      sumasMes[m] += r.ventasBrutas;
+      conteosMes[m]++;
+    }
+    const porMes = NOMBRES_MES.map((nombre, i) => ({
+      nombre, promedioDiario: conteosMes[i] ? sumasMes[i] / conteosMes[i] : 0,
+    }));
+    const mejorMes = [...porMes].filter((m) => m.promedioDiario > 0).sort((a, b) => b.promedioDiario - a.promedioDiario)[0];
+
+    // --- Totales mensuales, para tendencia y proyección ---
+    const totalesMes = new Map();
+    for (const r of ordenados) {
+      const clave = claveMes(r.fecha);
+      totalesMes.set(clave, (totalesMes.get(clave) || 0) + r.ventasBrutas);
+    }
+    const clavesOrdenadas = [...totalesMes.keys()].sort();
+    const ultimoDiaDelMes = (clave) => { const [a, m] = clave.split("-").map(Number); return new Date(a, m, 0).getDate(); };
+    const ultimaClave = clavesOrdenadas[clavesOrdenadas.length - 1];
+    const diaDeUltimaFecha = Number(ultimaFecha.slice(8, 10));
+    const esMesIncompleto = diaDeUltimaFecha < ultimoDiaDelMes(ultimaClave);
+    const clavesCompletas = esMesIncompleto ? clavesOrdenadas.slice(0, -1) : clavesOrdenadas;
+
+    if (clavesCompletas.length === 0) return null;
+
+    // Tasa de crecimiento: promedio de los deltas interanuales recientes (mismo mes, año anterior)
+    const deltasInteranuales = [];
+    for (let i = clavesCompletas.length - 1; i >= 0 && deltasInteranuales.length < 6; i--) {
+      const clave = clavesCompletas[i];
+      const [a, m] = clave.split("-");
+      const claveAnterior = `${Number(a) - 1}-${m}`;
+      if (totalesMes.has(claveAnterior)) deltasInteranuales.push(deltaPct(totalesMes.get(clave), totalesMes.get(claveAnterior)));
+    }
+    let tasaCrecimiento, metodoTasa;
+    if (deltasInteranuales.length >= 2) {
+      tasaCrecimiento = deltasInteranuales.reduce((s, v) => s + v, 0) / deltasInteranuales.length;
+      metodoTasa = "interanual";
+    } else {
+      const deltasMoM = [];
+      for (let i = clavesCompletas.length - 1; i > 0 && deltasMoM.length < 5; i--) {
+        deltasMoM.push(deltaPct(totalesMes.get(clavesCompletas[i]), totalesMes.get(clavesCompletas[i - 1])));
+      }
+      tasaCrecimiento = deltasMoM.length ? deltasMoM.reduce((s, v) => s + v, 0) / deltasMoM.length : 0;
+      metodoTasa = "mensual";
+    }
+
+    // Proyección de los próximos 3 meses
+    const [ultAno, ultMes] = clavesCompletas[clavesCompletas.length - 1].split("-").map(Number);
+    const proyeccion = [];
+    for (let i = 1; i <= 3; i++) {
+      let anoF = ultAno, mesF = ultMes + i;
+      while (mesF > 12) { mesF -= 12; anoF += 1; }
+      const claveMismoMesAnoAnterior = `${anoF - 1}-${String(mesF).padStart(2, "0")}`;
+      let base;
+      if (totalesMes.has(claveMismoMesAnoAnterior)) {
+        base = totalesMes.get(claveMismoMesAnoAnterior) * (1 + tasaCrecimiento / 100);
+      } else {
+        base = totalesMes.get(clavesCompletas[clavesCompletas.length - 1]) * Math.pow(1 + tasaCrecimiento / 100, i);
+      }
+      const ajustado = Math.max(0, base * (1 + ajusteEconomico / 100));
+      proyeccion.push({ etiqueta: `${NOMBRES_MES[mesF - 1]} ${String(anoF).slice(2)}`, valor: ajustado });
+    }
+
+    // Serie combinada para el gráfico (últimos 12 meses completos + 3 proyectados)
+    const historicos = clavesCompletas.slice(-12).map((clave) => {
+      const [a, m] = clave.split("-");
+      return { etiqueta: `${NOMBRES_MES[Number(m) - 1]} ${a.slice(2)}`, "Histórico": totalesMes.get(clave), "Proyectado": null };
+    });
+    if (historicos.length) historicos[historicos.length - 1]["Proyectado"] = historicos[historicos.length - 1]["Histórico"];
+    const proyectados = proyeccion.map((p) => ({ etiqueta: p.etiqueta, "Histórico": null, "Proyectado": p.valor }));
+    const serie = [...historicos, ...proyectados];
+
+    // --- Diciembre: proyección día a día, año filtrable ---
+    // Diciembre es el mes de mejor venta y muy "controlable" (flujo de clientes
+    // predecible entre años) — en vez de proyectar cada día por separado (muy
+    // poco dato por día), se calcula la FORMA del mes (qué % del total
+    // representa cada día, promediado entre los diciembres disponibles) y se
+    // aplica sobre un total proyectado (crecimiento interanual de diciembre,
+    // o la tasa general si solo hay un diciembre en el historial). Si el año
+    // elegido ya tiene datos reales, se muestran esos en vez de proyectar.
+    let diciembre = null;
+    const registrosDiciembre = ordenados.filter((r) => r.fecha.slice(5, 7) === "12");
+    if (registrosDiciembre.length > 0) {
+      const porAnoDia = new Map();
+      for (const r of registrosDiciembre) {
+        const ano = r.fecha.slice(0, 4);
+        const dia = Number(r.fecha.slice(8, 10));
+        if (!porAnoDia.has(ano)) porAnoDia.set(ano, new Map());
+        porAnoDia.get(ano).set(dia, r.ventasBrutas);
+      }
+      const anosDic = [...porAnoDia.keys()].sort();
+      const totalesPorAno = anosDic.map((ano) => {
+        const mapa = porAnoDia.get(ano);
+        return { ano, total: [...mapa.values()].reduce((s, v) => s + v, 0) };
+      });
+
+      const shape = {};
+      for (let dia = 1; dia <= 31; dia++) {
+        const proporciones = [];
+        for (const { ano, total } of totalesPorAno) {
+          const mapa = porAnoDia.get(ano);
+          if (mapa.has(dia) && total > 0) proporciones.push(mapa.get(dia) / total);
+        }
+        if (proporciones.length) shape[dia] = proporciones.reduce((s, v) => s + v, 0) / proporciones.length;
+      }
+      const sumaShape = Object.values(shape).reduce((s, v) => s + v, 0);
+      if (sumaShape > 0) for (const d in shape) shape[d] = shape[d] / sumaShape;
+
+      let crecimientoDic;
+      if (totalesPorAno.length >= 2) {
+        const ultimo = totalesPorAno[totalesPorAno.length - 1];
+        const anterior = totalesPorAno[totalesPorAno.length - 2];
+        crecimientoDic = deltaPct(ultimo.total, anterior.total);
+      } else {
+        crecimientoDic = tasaCrecimiento;
+      }
+
+      const anoActualCalendario = new Date().getFullYear();
+      const opcionesAnoDiciembre = [...new Set([...anosDic.map(Number), anoActualCalendario, anoActualCalendario + 1])].sort((a, b) => a - b);
+      const anoObjetivo = anoDiciembreSel ?? anoActualCalendario;
+      const diasDelMes = new Date(anoObjetivo, 12, 0).getDate();
+
+      if (porAnoDia.has(String(anoObjetivo))) {
+        // Año con datos reales: se muestra lo que realmente pasó, no una proyección.
+        const mapaReal = porAnoDia.get(String(anoObjetivo));
+        const totalReal = totalesPorAno.find((t) => t.ano === String(anoObjetivo))?.total ?? 0;
+        const idxAno = anosDic.indexOf(String(anoObjetivo));
+        const totalAnoAnterior = idxAno > 0 ? totalesPorAno[idxAno - 1].total : null;
+
+        const porDiaProyeccion = [];
+        for (let dia = 1; dia <= diasDelMes; dia++) {
+          const diaSemana = new Date(anoObjetivo, 11, dia).getDay();
+          porDiaProyeccion.push({
+            dia, etiqueta: String(dia), diaSemana: NOMBRES_DIA_SEMANA[diaSemana].slice(0, 3),
+            proyeccion: mapaReal.get(dia) ?? 0, historicoAnoBase: null,
+          });
+        }
+        const mejorDiaDic = [...porDiaProyeccion].sort((a, b) => b.proyeccion - a.proyeccion)[0];
+
+        diciembre = {
+          anoObjetivo, opcionesAnoDiciembre, esReal: true,
+          totalProyectado: totalReal,
+          crecimientoDic: totalAnoAnterior != null ? deltaPct(totalReal, totalAnoAnterior) : null,
+          anoComparacion: idxAno > 0 ? anosDic[idxAno - 1] : null,
+          porDiaProyeccion, mejorDiaDic,
+        };
+      } else {
+        // Año sin datos: proyectar desde el diciembre real más reciente ANTERIOR a él.
+        const anosPrevios = anosDic.filter((a) => Number(a) < anoObjetivo);
+        if (anosPrevios.length > 0) {
+          const anoBase = anosPrevios[anosPrevios.length - 1];
+          const anoBaseInfo = totalesPorAno.find((t) => t.ano === anoBase);
+          const distancia = anoObjetivo - Number(anoBase);
+          const totalProyectado = Math.max(0, anoBaseInfo.total * Math.pow(1 + crecimientoDic / 100, distancia) * (1 + ajusteEconomico / 100));
+          const anoBaseMapa = porAnoDia.get(anoBase);
+
+          const porDiaProyeccion = [];
+          for (let dia = 1; dia <= diasDelMes; dia++) {
+            const prop = shape[dia] || 0;
+            const diaSemana = new Date(anoObjetivo, 11, dia).getDay();
+            porDiaProyeccion.push({
+              dia, etiqueta: String(dia), diaSemana: NOMBRES_DIA_SEMANA[diaSemana].slice(0, 3),
+              proyeccion: totalProyectado * prop, historicoAnoBase: anoBaseMapa.get(dia) ?? null,
+            });
+          }
+          const mejorDiaDic = [...porDiaProyeccion].sort((a, b) => b.proyeccion - a.proyeccion)[0];
+
+          diciembre = {
+            anoObjetivo, opcionesAnoDiciembre, esReal: false,
+            totalProyectado, crecimientoDic, anoComparacion: anoBase,
+            porDiaProyeccion, mejorDiaDic,
+          };
+        }
+      }
+    }
+
+    // Línea de tendencia del gráfico de diciembre: promedio móvil de 3 días
+    // sobre las mismas barras, para suavizar el ruido día a día y ver hacia
+    // dónde va el mes sin perder el pico de Navidad.
+    if (diciembre) {
+      const valores = diciembre.porDiaProyeccion.map((d) => d.proyeccion);
+      diciembre.porDiaProyeccion = diciembre.porDiaProyeccion.map((d, i) => {
+        const inicio = Math.max(0, i - 1);
+        const fin = Math.min(valores.length - 1, i + 1);
+        const ventana = valores.slice(inicio, fin + 1);
+        const tendencia = ventana.reduce((s, v) => s + v, 0) / ventana.length;
+        return { ...d, tendencia };
+      });
+    }
+
+    return { porDiaSemana, mejorDia, peorDia, porMes, mejorMes, tasaCrecimiento, metodoTasa, proyeccion, serie, diciembre };
+  }, [registros, ajusteEconomico, anoDiciembreSel]);
+
+  if (!analisis) return <p className="text-sm text-gray-400 py-6 text-center">Todavía no hay suficientes datos para proyectar.</p>;
+
+  const { porDiaSemana, mejorDia, peorDia, porMes, mejorMes, tasaCrecimiento, metodoTasa, proyeccion, serie, diciembre } = analisis;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 flex items-start gap-2">
+        <CalendarClock size={15} className="mt-0.5 flex-shrink-0" />
+        <span>
+          La proyección se calcula con tu historial de ventas (tendencia + estacionalidad, comparando contra el mismo
+          mes del año anterior). No incluye datos económicos externos (inflación, DANE, etc.) — usa el campo
+          "Ajuste esperado" de abajo para reflejar tu propio criterio sobre cómo ves el mercado.
+        </span>
+      </div>
+
+      <section className="grid sm:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><BarChart3 size={16} className="text-emerald-700" />Venta promedio por día de la semana</h2>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={porDiaSemana}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis dataKey="nombre" tickFormatter={(v) => v.slice(0, 3)} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+              <YAxis tickFormatter={(v) => `$${(v / 1e6).toFixed(1)}M`} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={52} />
+              <Tooltip content={<TooltipMoneda />} formatter={(v) => v} />
+              <Bar dataKey="promedio" name="Venta promedio" radius={[4, 4, 0, 0]}>
+                {porDiaSemana.map((d) => (
+                  <Cell key={d.dia} fill={mejorDia && d.dia === mejorDia.dia ? COLOR_ACENTO : peorDia && d.dia === peorDia.dia ? "#dc7a5f" : COLOR_CONTEXTO} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          {mejorDia && peorDia && (
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <div className="rounded-lg bg-emerald-50 px-3 py-2">
+                <div className="text-[11px] text-gray-400">Mejor día para vender</div>
+                <div className="text-sm font-semibold text-emerald-800">{mejorDia.nombre} · {formatoPct(mejorDia.vsPromedio)}</div>
+              </div>
+              <div className="rounded-lg bg-orange-50 px-3 py-2">
+                <div className="text-[11px] text-gray-400">Día más flojo</div>
+                <div className="text-sm font-semibold text-orange-800">{peorDia.nombre} · {formatoPct(peorDia.vsPromedio)}</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><CalendarDays size={16} className="text-emerald-700" />Estacionalidad · venta promedio diaria por mes</h2>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={porMes}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis dataKey="nombre" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+              <YAxis tickFormatter={(v) => `$${(v / 1e6).toFixed(1)}M`} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={52} />
+              <Tooltip content={<TooltipMoneda />} />
+              <Bar dataKey="promedioDiario" name="Venta promedio diaria" radius={[4, 4, 0, 0]}>
+                {porMes.map((m) => (
+                  <Cell key={m.nombre} fill={mejorMes && m.nombre === mejorMes.nombre ? COLOR_ACENTO : COLOR_CONTEXTO} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          {mejorMes && (
+            <p className="text-xs text-gray-400 mt-3">
+              <b className="text-gray-600">{mejorMes.nombre.charAt(0).toUpperCase() + mejorMes.nombre.slice(1)}</b> es históricamente el mes de mejor venta — útil para planear inventario y personal con anticipación.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <h2 className="text-sm font-semibold flex items-center gap-2"><TrendingUp size={16} className="text-emerald-700" />Proyección de ventas · próximos 3 meses</h2>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-gray-500">Ajuste esperado del mercado</label>
+            <input
+              type="number" value={ajusteEconomico}
+              onChange={(e) => setAjusteEconomico(Math.min(50, Math.max(-50, Number(e.target.value) || 0)))}
+              className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm tabular-nums text-right"
+            />
+            <span className="text-xs text-gray-400">%</span>
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={serie}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+            <YAxis tickFormatter={(v) => `$${(v / 1e6).toFixed(1)}M`} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={52} />
+            <Tooltip content={<TooltipMoneda />} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Line type="monotone" dataKey="Histórico" stroke={COLOR_ACENTO} strokeWidth={2.5} dot={false} connectNulls />
+            <Line type="monotone" dataKey="Proyectado" stroke={COLORES_SERIE[1]} strokeWidth={2.5} strokeDasharray="5 4" dot={{ r: 3 }} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+        <p className="text-xs text-gray-400 mt-2">
+          Tendencia calculada {metodoTasa === "interanual" ? "comparando cada mes contra el mismo mes del año anterior" : "sobre el crecimiento mensual reciente (todavía no hay un año completo de historia)"}: <b className={tasaCrecimiento >= 0 ? "text-emerald-700" : "text-red-600"}>{formatoPct(tasaCrecimiento)}</b>
+          {ajusteEconomico !== 0 && <> + tu ajuste manual de <b>{formatoPct(ajusteEconomico, 0)}</b></>}.
+        </p>
+        <div className="grid sm:grid-cols-3 gap-3 mt-4">
+          {proyeccion.map((p) => (
+            <div key={p.etiqueta} className="rounded-lg bg-gray-50 px-3 py-2.5">
+              <div className="text-xs text-gray-400 capitalize">{p.etiqueta}</div>
+              <div className="text-lg font-semibold tabular-nums">{formatoCOP(p.valor)}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {diciembre && (
+        <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+            <h2 className="text-sm font-semibold flex items-center gap-2"><Gift size={16} className="text-emerald-700" />Diciembre</h2>
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold text-gray-500">Año</label>
+              <select
+                value={diciembre.anoObjetivo}
+                onChange={(e) => setAnoDiciembreSel(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium"
+              >
+                {diciembre.opcionesAnoDiciembre.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mb-4">
+            {diciembre.esReal
+              ? <>Venta real registrada, día a día.</>
+              : <>Proyección: se calcula la forma típica del mes (qué % de la venta cae en cada día, según diciembre {diciembre.anoComparacion}) y se aplica sobre el total esperado para {diciembre.anoObjetivo}.</>}
+          </p>
+
+          <div className="grid sm:grid-cols-3 gap-3 mb-4">
+            <div className="rounded-lg bg-emerald-50 px-3 py-2.5">
+              <div className="text-xs text-gray-400">{diciembre.esReal ? "Total real de diciembre" : "Total proyectado de diciembre"}</div>
+              <div className="text-lg font-semibold tabular-nums text-emerald-800">{formatoCOP(diciembre.totalProyectado)}</div>
+            </div>
+            <div className="rounded-lg bg-gray-50 px-3 py-2.5">
+              <div className="text-xs text-gray-400">
+                {diciembre.crecimientoDic == null ? "Sin diciembre anterior para comparar" : `Vs. diciembre ${diciembre.anoComparacion}`}
+              </div>
+              {diciembre.crecimientoDic != null && (
+                <div className={`text-lg font-semibold tabular-nums ${diciembre.crecimientoDic >= 0 ? "text-emerald-700" : "text-red-600"}`}>{formatoPct(diciembre.crecimientoDic)}</div>
+              )}
+            </div>
+            <div className="rounded-lg bg-amber-50 px-3 py-2.5">
+              <div className="text-xs text-gray-400">Día más fuerte {diciembre.esReal ? "" : "proyectado"}</div>
+              <div className="text-lg font-semibold tabular-nums text-amber-800">
+                {diciembre.mejorDiaDic.dia} dic ({diciembre.mejorDiaDic.diaSemana}) · {formatoCOP(diciembre.mejorDiaDic.proyeccion)}
+              </div>
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={280}>
+            <ComposedChart data={diciembre.porDiaProyeccion}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis dataKey="etiqueta" interval={0} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+              <YAxis tickFormatter={(v) => `$${(v / 1e6).toFixed(1)}M`} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={52} />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0].payload;
+                  return (
+                    <div className="rounded-lg bg-gray-900 text-white text-xs px-3 py-2 shadow-lg">
+                      <div className="font-semibold mb-1">{label} de diciembre · {d.diaSemana}</div>
+                      <div>{diciembre.esReal ? "Real" : "Proyectado"} {diciembre.anoObjetivo}: {formatoCOP(d.proyeccion)}</div>
+                      {d.historicoAnoBase != null && <div className="text-gray-300">Diciembre {diciembre.anoComparacion}: {formatoCOP(d.historicoAnoBase)}</div>}
+                      <div className="text-gray-300">Tendencia (prom. 3 días): {formatoCOP(d.tendencia)}</div>
+                    </div>
+                  );
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="proyeccion" name={diciembre.esReal ? "Venta real" : "Proyección"} radius={[3, 3, 0, 0]}>
+                {diciembre.porDiaProyeccion.map((d) => (
+                  <Cell key={d.dia} fill={d.dia === diciembre.mejorDiaDic.dia ? COLOR_ACENTO : COLORES_SERIE[1]} fillOpacity={d.dia === diciembre.mejorDiaDic.dia ? 1 : 0.75} />
+                ))}
+              </Bar>
+              <Line type="monotone" dataKey="tendencia" name="Tendencia (prom. 3 días)" stroke="#374151" strokeWidth={2} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </section>
+      )}
+    </div>
+  );
+}
+
 /* =============================================================================
    SECCIÓN 4 — COMPONENTE PRINCIPAL
 ============================================================================= */
@@ -867,16 +1278,30 @@ export default function PanelFinanciero() {
       serieLinea = anos.map((a) => ({ etiqueta: a, Actual: sumarRegistros(ordenados.filter((r) => claveAno(r.fecha) === a)).ventasBrutas }));
     }
 
+    // Comparativo mensual en orden calendario (Ene→Dic), anclado al año que
+    // se está viendo — así siempre se lee de izquierda a derecha igual que
+    // un calendario, en vez de una ventana móvil de 12 meses.
     const comparativoMensual = [];
-    for (let i = 11; i >= 0; i--) {
-      const clave = sumarMeses(mesReferencia, -i);
-      const [a, m] = clave.split("-");
-      const claveAnt = `${Number(a) - 1}-${m}`;
+    for (let m = 1; m <= 12; m++) {
+      const clave = `${anoActivo}-${pad2(m)}`;
+      const claveAnt = `${Number(anoActivo) - 1}-${pad2(m)}`;
+      const claveHace2 = `${Number(anoActivo) - 2}-${pad2(m)}`;
+      const actual = sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === clave)).ventasBrutas || null;
+      const anterior = sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === claveAnt)).ventasBrutas || null;
       comparativoMensual.push({
-        etiqueta: NOMBRES_MES[Number(m) - 1],
-        "Año actual": sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === clave)).ventasBrutas,
-        "Año anterior": sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === claveAnt)).ventasBrutas,
+        etiqueta: NOMBRES_MES[m - 1],
+        "Hace 2 años": sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === claveHace2)).ventasBrutas || null,
+        "Año anterior": anterior,
+        "Año actual": actual,
+        crecimiento: actual != null && anterior ? deltaPct(actual, anterior) : null,
       });
+    }
+    // Línea de tendencia: promedio móvil de 3 meses sobre "Año actual".
+    for (let i = 0; i < comparativoMensual.length; i++) {
+      const inicio = Math.max(0, i - 1);
+      const fin = Math.min(comparativoMensual.length - 1, i + 1);
+      const ventana = comparativoMensual.slice(inicio, fin + 1).map((p) => p["Año actual"]).filter((v) => v != null);
+      comparativoMensual[i].tendencia = ventana.length ? ventana.reduce((s, v) => s + v, 0) / ventana.length : null;
     }
 
     const metodosPago = [
@@ -907,9 +1332,8 @@ export default function PanelFinanciero() {
       {/* Encabezado */}
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="relative w-10 h-10 rounded-xl bg-emerald-700 text-white flex items-center justify-center">
-            <Home size={20} />
-            <Crown size={17} fill="currentColor" className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-amber-400 drop-shadow" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden bg-white ring-1 ring-gray-200 flex items-center justify-center">
+            <img src={logoCorona} alt="P&P Princesas y Princesitas" className="w-full h-full object-cover" />
           </div>
           <div>
             <h1 className="text-xl font-bold leading-tight flex items-center gap-2">
@@ -966,6 +1390,7 @@ export default function PanelFinanciero() {
         {[
           { valor: "financiero", etiqueta: "Financiero", Icono: LayoutDashboard },
           { valor: "inventario", etiqueta: "Inventario", Icono: Warehouse },
+          { valor: "proyecciones", etiqueta: "Proyecciones", Icono: BarChart3 },
         ].map(({ valor, etiqueta, Icono }) => (
           <button
             key={valor}
@@ -980,6 +1405,8 @@ export default function PanelFinanciero() {
       </div>
 
       {vista === "inventario" && <PanelInventario />}
+
+      {vista === "proyecciones" && <PanelProyecciones registros={registros} />}
 
       {vista === "financiero" && (
       <>
@@ -1096,17 +1523,37 @@ export default function PanelFinanciero() {
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><Table2 size={16} className="text-emerald-700" />Comparativo mensual · año actual vs. anterior</h2>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={datos.comparativoMensual}>
+          <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><Table2 size={16} className="text-emerald-700" />Comparativo mensual · {anoActivo} vs. 2 años anteriores</h2>
+          <ResponsiveContainer width="100%" height={280}>
+            <ComposedChart data={datos.comparativoMensual}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
               <YAxis tickFormatter={(v) => `$${(v / 1e6).toFixed(1)}M`} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={52} />
-              <Tooltip content={<TooltipMoneda />} />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0].payload;
+                  return (
+                    <div className="rounded-lg bg-gray-900 text-white text-xs px-3 py-2 shadow-lg">
+                      <div className="font-semibold mb-1">{label}</div>
+                      {d["Hace 2 años"] != null && <div className="text-gray-300">Hace 2 años: {formatoCOP(d["Hace 2 años"])}</div>}
+                      {d["Año anterior"] != null && <div className="text-gray-300">Año anterior: {formatoCOP(d["Año anterior"])}</div>}
+                      {d["Año actual"] != null && <div>Año actual: {formatoCOP(d["Año actual"])}</div>}
+                      {d.crecimiento != null && (
+                        <div className={d.crecimiento >= 0 ? "text-emerald-400" : "text-red-400"}>Crecimiento vs. año anterior: {formatoPct(d.crecimiento)}</div>
+                      )}
+                    </div>
+                  );
+                }}
+              />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Año anterior" fill={COLOR_CONTEXTO} radius={[3, 3, 0, 0]} opacity={0.55} />
-              <Bar dataKey="Año actual" fill={COLORES_SERIE[0]} radius={[3, 3, 0, 0]} />
-            </BarChart>
+              <Bar dataKey="Hace 2 años" fill={COLOR_CONTEXTO} radius={[3, 3, 0, 0]} opacity={0.5} />
+              <Bar dataKey="Año anterior" fill={COLORES_SERIE[0]} radius={[3, 3, 0, 0]} opacity={0.75} />
+              <Bar dataKey="Año actual" fill={COLOR_ACENTO} radius={[3, 3, 0, 0]}>
+                <LabelList dataKey="crecimiento" position="top" formatter={(v) => (v == null ? "" : formatoPct(v, 0))} style={{ fontSize: 10, fill: "#6b7280", fontWeight: 600 }} />
+              </Bar>
+              <Line type="monotone" dataKey="tendencia" name="Tendencia (prom. 3 meses)" stroke="#374151" strokeWidth={2} dot={false} />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </section>
@@ -1221,6 +1668,7 @@ export default function PanelFinanciero() {
           onCerrar={() => setModalDetalleAbierto(false)}
         />
       )}
+
     </div>
   );
 }
