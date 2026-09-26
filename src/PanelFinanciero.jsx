@@ -1585,8 +1585,12 @@ export default function PanelFinanciero() {
             <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
             <Tooltip formatter={(v) => formatoNumeroVentas(v)} labelFormatter={(l) => l} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="Año anterior" fill={COLOR_CONTEXTO} radius={[3, 3, 0, 0]} opacity={0.65} />
-            <Bar dataKey="Año actual" fill={COLORES_SERIE[0]} radius={[3, 3, 0, 0]} />
+            <Bar dataKey="Año anterior" fill={COLOR_CONTEXTO} radius={[3, 3, 0, 0]} opacity={0.65}>
+              <LabelList dataKey="Año anterior" position="top" formatter={(v) => (v == null ? "" : v)} style={{ fontSize: 10, fill: "#9ca3af", fontWeight: 600 }} />
+            </Bar>
+            <Bar dataKey="Año actual" fill={COLORES_SERIE[0]} radius={[3, 3, 0, 0]}>
+              <LabelList dataKey="Año actual" position="top" formatter={(v) => (v == null ? "" : v)} style={{ fontSize: 10, fill: "#374151", fontWeight: 600 }} />
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </section>
