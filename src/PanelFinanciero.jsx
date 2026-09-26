@@ -1327,22 +1327,23 @@ export default function PanelFinanciero() {
 
   const { pygActual, pygAnterior, pygAnoAnterior } = datos;
 
-  // Cantidad de facturas por mes, últimos 24 meses — independiente del
-  // período que se esté viendo arriba, siempre ancla a la fecha más
-  // reciente con datos.
+  // Cantidad de facturas por mes, en orden calendario (Ene→Dic), año
+  // seleccionado vs. el anterior — mismo criterio que "Comparativo mensual".
   const facturasPorMes = useMemo(() => {
     if (!registros.length) return [];
     const ordenados = [...registros].sort((a, b) => a.fecha.localeCompare(b.fecha));
-    const claveFinal = claveMes(ordenados[ordenados.length - 1].fecha);
-    const claves = []; for (let i = 23; i >= 0; i--) claves.push(sumarMeses(claveFinal, -i));
-    return claves.map((c) => {
-      const [a, m] = c.split("-");
-      return {
-        etiqueta: `${NOMBRES_MES[Number(m) - 1]} ${a.slice(2)}`,
-        facturas: sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === c)).numeroVentas || 0,
-      };
-    });
-  }, [registros]);
+    const resultado = [];
+    for (let m = 1; m <= 12; m++) {
+      const clave = `${anoActivo}-${pad2(m)}`;
+      const claveAnt = `${Number(anoActivo) - 1}-${pad2(m)}`;
+      resultado.push({
+        etiqueta: NOMBRES_MES[m - 1],
+        "Año anterior": sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === claveAnt)).numeroVentas || null,
+        "Año actual": sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === clave)).numeroVentas || null,
+      });
+    }
+    return resultado;
+  }, [registros, anoActivo]);
 
   return (
     <div className="max-w-6xl mx-auto px-5 py-6 flex flex-col gap-5 bg-gray-50 min-h-screen">
@@ -1576,14 +1577,16 @@ export default function PanelFinanciero() {
       </section>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><Receipt size={16} className="text-emerald-700" />Cantidad de facturas por mes · últimos 2 años</h2>
+        <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><Receipt size={16} className="text-emerald-700" />Cantidad de facturas por mes · {anoActivo} vs. año anterior</h2>
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={facturasPorMes}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-            <XAxis dataKey="etiqueta" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} interval={1} />
+            <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
             <Tooltip formatter={(v) => formatoNumeroVentas(v)} labelFormatter={(l) => l} />
-            <Bar dataKey="facturas" name="Facturas" fill={COLORES_SERIE[0]} radius={[3, 3, 0, 0]} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Bar dataKey="Año anterior" fill={COLOR_CONTEXTO} radius={[3, 3, 0, 0]} opacity={0.65} />
+            <Bar dataKey="Año actual" fill={COLORES_SERIE[0]} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </section>
