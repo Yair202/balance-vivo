@@ -1342,6 +1342,13 @@ export default function PanelFinanciero() {
         "Año actual": sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === clave)).numeroVentas || null,
       });
     }
+    // Columna extra al final con el total del año completo (ambos años).
+    const sumaCol = (col) => resultado.reduce((s, p) => s + (p[col] || 0), 0);
+    resultado.push({
+      etiqueta: "Total",
+      "Año anterior": sumaCol("Año anterior") || null,
+      "Año actual": sumaCol("Año actual") || null,
+    });
     return resultado;
   }, [registros, anoActivo]);
 
