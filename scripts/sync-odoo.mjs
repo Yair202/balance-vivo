@@ -83,6 +83,12 @@ function fechaLocalISO(fechaOdooUTC) {
   return local.toISOString().slice(0, 10);
 }
 
+function horaLocalHHMM(fechaOdooUTC) {
+  const utc = new Date(fechaOdooUTC.replace(" ", "T") + "Z");
+  const local = new Date(utc.getTime() + TZ_OFFSET_HORAS * 60 * 60 * 1000);
+  return local.toISOString().slice(11, 16);
+}
+
 function formatoCOPSimple(valor) {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(valor);
 }
@@ -103,7 +109,7 @@ async function main() {
   const ordenes = await buscarTodo(
     "pos.order",
     [["date_order", ">=", desdeStr], ["date_order", "<", hastaStr], ["state", "in", ["paid", "done", "invoiced"]]],
-    ["id", "date_order", "amount_total"]
+    ["id", "name", "date_order", "amount_total"]
   );
   console.log(`${ordenes.length} órdenes encontradas.`);
   if (ordenes.length === 0) {
@@ -111,6 +117,8 @@ async function main() {
   }
   const idsOrdenes = ordenes.map((o) => o.id);
   const fechaPorOrden = new Map(ordenes.map((o) => [o.id, fechaLocalISO(o.date_order)]));
+  const horaPorOrden = new Map(ordenes.map((o) => [o.id, horaLocalHHMM(o.date_order)]));
+  const numeroPorOrden = new Map(ordenes.map((o) => [o.id, o.name]));
 
   // --- Métodos de pago ---
   // Odoo 13+ usa el modelo pos.payment / pos.payment.method. Versiones
@@ -184,6 +192,8 @@ async function main() {
     .filter((l) => l.product_id)
     .map((l) => ({
       fecha: fechaPorOrden.get(l.order_id?.[0]),
+      hora: horaPorOrden.get(l.order_id?.[0]),
+      numeroFactura: numeroPorOrden.get(l.order_id?.[0]),
       productoId: l.product_id[0],
       producto: l.product_id[1],
       cantidad: l.qty,

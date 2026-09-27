@@ -1163,6 +1163,17 @@ export default function PanelFinanciero() {
     : nivelActivo === "dia" ? `${diaActivo} ${nombreMesCap} ${anoActivo}` : nivelActivo === "mes" ? `${nombreMesCap} ${anoActivo}` : anoActivo;
   const fechaDiaActivo = diaActivo ? `${anoActivo}-${String(mesActivo).padStart(2, "0")}-${String(diaActivo).padStart(2, "0")}` : null;
 
+  // Rango de fechas del período que se está viendo — para el detalle de venta
+  // (funciona igual para un día puntual, un mes, un año o un rango libre).
+  const diasEnMesActivoCalc = mesActivo ? new Date(Number(anoActivo), mesActivo, 0).getDate() : 31;
+  const [fechaDesdeActivo, fechaHastaActivo] = nivelActivo === "rango"
+    ? [rangoDesde, rangoHasta]
+    : nivelActivo === "dia"
+      ? [fechaDiaActivo, fechaDiaActivo]
+      : nivelActivo === "mes"
+        ? [`${anoActivo}-${String(mesActivo).padStart(2, "0")}-01`, `${anoActivo}-${String(mesActivo).padStart(2, "0")}-${String(diasEnMesActivoCalc).padStart(2, "0")}`]
+        : [`${anoActivo}-01-01`, `${anoActivo}-12-31`];
+
   // Si el usuario ajustó la meta a mano y luego cambia de mes, se vuelve a
   // calcular sola para el mes nuevo (el ajuste manual era solo para el mes
   // que estaba viendo).
@@ -1532,7 +1543,7 @@ export default function PanelFinanciero() {
       <section className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))" }}>
         <TarjetaKPI etiqueta={`Ventas brutas ${etiquetaPeriodo}`} valor={formatoCOP(pygActual.ventasBrutas)} Icono={Package}
           delta={deltaPct(pygActual.ventasBrutas, pygAnterior.ventasBrutas)} deltaEtiqueta={datos.etiquetaAnterior}
-          onClickValor={nivelActivo === "dia" && pygActual.ventasBrutas > 0 ? () => setModalDetalleAbierto(true) : undefined} />
+          onClickValor={pygActual.ventasBrutas > 0 ? () => setModalDetalleAbierto(true) : undefined} tituloClick="Ver el detalle de productos vendidos" />
         <TarjetaKPI etiqueta={`Utilidad neta ${etiquetaPeriodo}`} valor={formatoCOP(pygActual.utilidadNeta)} Icono={Wallet}
           delta={deltaPct(pygActual.utilidadNeta, pygAnterior.utilidadNeta)} deltaEtiqueta={datos.etiquetaAnterior} />
         <TarjetaKPI etiqueta="Margen neto" valor={`${pygActual.margenNeto.toFixed(1)}%`} Icono={Percent}
@@ -1732,9 +1743,10 @@ export default function PanelFinanciero() {
 
       {modalDetalleAbierto && (
         <ModalDetalleVenta
-          fecha={fechaDiaActivo}
+          fecha={tituloPeriodo}
           titulo={tituloPeriodo}
-          lineas={detalleVentas.filter((l) => l.fecha === fechaDiaActivo)}
+          lineas={detalleVentas.filter((l) => l.fecha >= fechaDesdeActivo && l.fecha <= fechaHastaActivo)}
+          mostrarFecha={nivelActivo !== "dia"}
           numeroVentas={pygActual.numeroVentas}
           onCerrar={() => setModalDetalleAbierto(false)}
         />
@@ -1873,29 +1885,51 @@ function ModalConfigurarGastos({
    precio — se abre al hacer clic en el valor de "Ventas brutas del día"
    (botón "Venta hoy" o cualquier día puntual del selector de período).
 ----------------------------------------------------------------------- */
-function ModalDetalleVenta({ fecha, titulo, lineas, numeroVentas, onCerrar }) {
-  const ordenadas = [...lineas].sort((a, b) => b.subtotal - a.subtotal);
-  const totalUnidades = ordenadas.reduce((s, l) => s + l.cantidad, 0);
-  const totalVenta = ordenadas.reduce((s, l) => s + l.subtotal, 0);
+function ModalDetalleVenta({ fecha, titulo, lineas, numeroVentas, mostrarFecha, onCerrar }) {
+  const [busqueda, setBusqueda] = useState("");
+
+  // Un solo día: como antes, lo más vendido primero. Período más largo
+  // (mes/año/rango): orden cronológico — así se puede navegar el histórico
+  // de facturas en el orden en que ocurrieron.
+  const base = mostrarFecha
+    ? [...lineas].sort((a, b) => (a.fecha + (a.hora || "")).localeCompare(b.fecha + (b.hora || "")))
+    : [...lineas].sort((a, b) => b.subtotal - a.subtotal);
+  const filtradas = busqueda.trim()
+    ? base.filter((l) => l.producto?.toLowerCase().includes(busqueda.trim().toLowerCase()) || l.numeroFactura?.toLowerCase().includes(busqueda.trim().toLowerCase()))
+    : base;
+  const totalUnidades = filtradas.reduce((s, l) => s + l.cantidad, 0);
+  const totalVenta = filtradas.reduce((s, l) => s + l.subtotal, 0);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
-      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <h3 className="font-semibold flex items-center gap-2"><Package size={17} className="text-emerald-700" />Detalle de venta — {titulo}</h3>
           <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
         </div>
         <div className="px-5 pt-4 pb-2 flex items-center gap-4 text-sm text-gray-500 flex-wrap">
           <span><b className="text-gray-900">{formatoNumeroVentas(numeroVentas)}</b> facturas</span>
-          <span><b className="text-gray-900">{ordenadas.length}</b> referencias</span>
+          <span><b className="text-gray-900">{base.length}</b> referencias</span>
           <span><b className="text-gray-900">{totalUnidades}</b> unidades</span>
           <span className="ml-auto font-semibold text-gray-900 tabular-nums">{formatoCOP(totalVenta)}</span>
         </div>
+        {base.length > 15 && (
+          <div className="px-5 pb-2">
+            <input
+              type="text" value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por producto o número de factura..."
+              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+            />
+          </div>
+        )}
         <div className="overflow-y-auto px-5 pb-5 flex-1">
-          {ordenadas.length ? (
+          {filtradas.length ? (
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white">
                 <tr className="text-xs text-gray-400 border-b border-gray-200">
+                  {mostrarFecha && <th className="text-left font-medium py-2">Fecha</th>}
+                  <th className="text-left font-medium py-2">Hora</th>
+                  <th className="text-left font-medium py-2">Factura</th>
                   <th className="text-left font-medium py-2">Producto</th>
                   <th className="text-right font-medium py-2">Cantidad</th>
                   <th className="text-right font-medium py-2">Precio unitario</th>
@@ -1903,8 +1937,11 @@ function ModalDetalleVenta({ fecha, titulo, lineas, numeroVentas, onCerrar }) {
                 </tr>
               </thead>
               <tbody>
-                {ordenadas.map((l, i) => (
+                {filtradas.map((l, i) => (
                   <tr key={i} className="border-b border-gray-50">
+                    {mostrarFecha && <td className="py-1.5 pr-2 text-gray-500 whitespace-nowrap">{l.fecha}</td>}
+                    <td className="py-1.5 pr-2 text-gray-500 tabular-nums">{l.hora || "—"}</td>
+                    <td className="py-1.5 pr-2 text-gray-500 whitespace-nowrap">{l.numeroFactura || "—"}</td>
                     <td className="py-1.5 pr-2">{l.producto}</td>
                     <td className="py-1.5 text-right tabular-nums text-gray-500">{l.cantidad}</td>
                     <td className="py-1.5 text-right tabular-nums text-gray-500">{formatoCOP(l.precioUnitario)}</td>
@@ -1915,7 +1952,9 @@ function ModalDetalleVenta({ fecha, titulo, lineas, numeroVentas, onCerrar }) {
             </table>
           ) : (
             <p className="text-sm text-gray-400 text-center py-8">
-              No hay detalle de productos para el {fecha} — sincroniza de nuevo si esperabas verlo aquí.
+              {busqueda.trim()
+                ? "Ningún producto o factura coincide con la búsqueda."
+                : <>No hay detalle de productos para {fecha} — sincroniza de nuevo si esperabas verlo aquí.</>}
             </p>
           )}
         </div>
