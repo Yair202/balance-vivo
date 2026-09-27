@@ -5,7 +5,7 @@ dist
 *.log.tmp
 *.log.err.tmp
 .env
-public/datos-ventas.json
-public/datos-detalle-ventas.json
-public/datos-inventario.json
 explorar-inventario*.mjs
+
+# En produccion (GitHub Actions + Vercel) estos SI se versionan a proposito:
+# hacen de "base de datos" simple, actualizados por el workflow programado.
