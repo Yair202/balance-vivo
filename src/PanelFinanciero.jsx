@@ -274,9 +274,11 @@ function FilaPyG({ etiqueta, valor, negativo, destacado, sub }) {
 
 /* -----------------------------------------------------------------------
    ADDI pendiente por cobrar: ADDI paga el segundo miércoles HÁBIL del mes
-   siguiente al de la venta, y descuenta 6.9% de comisión. Se agrupa lo
-   vendido por ADDI mes a mes y se calcula cuándo entra la plata y cuánto
-   neto — para poder controlar ese flujo de caja diferido.
+   siguiente al de la venta, y descuenta 2 tarifas configurables (% de
+   intermediación + % de IVA sobre esa comisión — por defecto 6,5% y 1,235%,
+   editables por si ADDI las cambia). Se agrupa lo vendido por ADDI mes a
+   mes y se calcula cuándo entra la plata y cuánto neto — para poder
+   controlar ese flujo de caja diferido.
    ►► Ojo: "hábil" aquí solo excluye sábados/domingos (el segundo miércoles
    del mes calendario), no festivos colombianos — si un 2do miércoles cae
    festivo, la fecha real de pago puede correrse uno o dos días.
@@ -292,9 +294,9 @@ function segundoMiercolesHabilMesSiguiente(ano, mes) { // mes 1-12, calcula sobr
   }
   return miercoles[1];
 }
-const PCT_COMISION_ADDI = 0.069;
+function PanelAddi({ registros, pctAddiIntermediacion, pctAddiIva }) {
+  const pctComisionTotal = pctAddiIntermediacion + pctAddiIva;
 
-function PanelAddi({ registros }) {
   const meses = useMemo(() => {
     const porMes = new Map();
     for (const r of registros) {
@@ -307,12 +309,12 @@ function PanelAddi({ registros }) {
       .map(([clave, vendido]) => {
         const [ano, mes] = clave.split("-").map(Number);
         const fechaPago = segundoMiercolesHabilMesSiguiente(ano, mes);
-        const comision = vendido * PCT_COMISION_ADDI;
+        const comision = vendido * (pctComisionTotal / 100);
         const neto = vendido - comision;
         return { clave, ano, mes, vendido, comision, neto, fechaPago, pagado: fechaPago < hoy };
       })
       .sort((a, b) => b.clave.localeCompare(a.clave));
-  }, [registros]);
+  }, [registros, pctComisionTotal]);
 
   const pendientes = meses.filter((m) => !m.pagado);
   const totalPendiente = pendientes.reduce((s, m) => s + m.neto, 0);
@@ -327,7 +329,10 @@ function PanelAddi({ registros }) {
       <h2 className="text-sm font-semibold flex items-center gap-2 mb-1">
         <Clock size={16} className="text-emerald-700" />ADDI — pendiente por cobrar
       </h2>
-      <p className="text-xs text-gray-400 mb-4">ADDI paga el segundo miércoles hábil del mes siguiente a la venta, descontando 6,9% de comisión.</p>
+      <p className="text-xs text-gray-400 mb-4">
+        ADDI paga el segundo miércoles hábil del mes siguiente a la venta, descontando {pctComisionTotal.toFixed(3)}% de
+        comisión ({pctAddiIntermediacion}% intermediación + {pctAddiIva}% IVA).
+      </p>
 
       <div className="grid sm:grid-cols-2 gap-3 mb-4">
         <div className="rounded-lg bg-amber-50 px-3 py-2.5">
@@ -353,7 +358,7 @@ function PanelAddi({ registros }) {
             <tr className="text-xs text-gray-400 border-b border-gray-200">
               <th className="text-left font-medium py-2 px-2">Mes de venta</th>
               <th className="text-right font-medium py-2 px-2">Vendido en ADDI</th>
-              <th className="text-right font-medium py-2 px-2">Comisión (6,9%)</th>
+              <th className="text-right font-medium py-2 px-2">Comisión ({pctComisionTotal.toFixed(3)}%)</th>
               <th className="text-right font-medium py-2 px-2">Neto a recibir</th>
               <th className="text-left font-medium py-2 px-2">Fecha de pago</th>
               <th className="text-left font-medium py-2 px-2">Estado</th>
@@ -1097,6 +1102,24 @@ export default function PanelFinanciero() {
   });
   useEffect(() => { try { localStorage.setItem("balance-vivo:pct-comisiones", String(pctComisiones)); } catch {} }, [pctComisiones]);
 
+  // ADDI cobra 2 tarifas aparte, cada una editable por si ADDI las cambia:
+  // intermediación (~6,5%) + IVA sobre esa comisión (~1,235% = 19% de 6,5%).
+  const [pctAddiIntermediacion, setPctAddiIntermediacion] = useState(() => {
+    try {
+      const guardado = localStorage.getItem("balance-vivo:pct-addi-intermediacion");
+      return guardado === null ? 6.5 : Number(guardado);
+    } catch { return 6.5; }
+  });
+  useEffect(() => { try { localStorage.setItem("balance-vivo:pct-addi-intermediacion", String(pctAddiIntermediacion)); } catch {} }, [pctAddiIntermediacion]);
+
+  const [pctAddiIva, setPctAddiIva] = useState(() => {
+    try {
+      const guardado = localStorage.getItem("balance-vivo:pct-addi-iva");
+      return guardado === null ? 1.235 : Number(guardado);
+    } catch { return 1.235; }
+  });
+  useEffect(() => { try { localStorage.setItem("balance-vivo:pct-addi-iva", String(pctAddiIva)); } catch {} }, [pctAddiIva]);
+
   // Período que se está viendo en TODO el tablero (KPIs, PyG, proyección).
   // undefined = todavía no lo tocó el usuario -> usa el más reciente con datos.
   // anoSel: string 'YYYY' | undefined.  mesSel: 1-12 | null ("todo el año") | undefined (auto).
@@ -1679,7 +1702,7 @@ export default function PanelFinanciero() {
         </div>
       </section>
 
-      <PanelAddi registros={registros} />
+      <PanelAddi registros={registros} pctAddiIntermediacion={pctAddiIntermediacion} pctAddiIva={pctAddiIva} />
 
       <PanelAnalisisPatron registros={registros} />
 
@@ -1700,6 +1723,10 @@ export default function PanelFinanciero() {
           setPctGastosVariables={setPctGastosVariables}
           pctComisiones={pctComisiones}
           setPctComisiones={setPctComisiones}
+          pctAddiIntermediacion={pctAddiIntermediacion}
+          setPctAddiIntermediacion={setPctAddiIntermediacion}
+          pctAddiIva={pctAddiIva}
+          setPctAddiIva={setPctAddiIva}
         />
       )}
 
@@ -1723,21 +1750,30 @@ export default function PanelFinanciero() {
    en vez de tener que cargar cada día a mano. Odoo/el POS no trae estos
    datos porque viven en Contabilidad, no en el punto de venta.
 ----------------------------------------------------------------------- */
-function ModalConfigurarGastos({ onCerrar, gastosFijosMensuales, setGastosFijosMensuales, pctGastosVariables, setPctGastosVariables, pctComisiones, setPctComisiones }) {
+function ModalConfigurarGastos({
+  onCerrar, gastosFijosMensuales, setGastosFijosMensuales, pctGastosVariables, setPctGastosVariables,
+  pctComisiones, setPctComisiones, pctAddiIntermediacion, setPctAddiIntermediacion, pctAddiIva, setPctAddiIva,
+}) {
   const [fijos, setFijos] = useState(String(gastosFijosMensuales));
   const [pctVar, setPctVar] = useState(String(pctGastosVariables));
   const [pctCom, setPctCom] = useState(String(pctComisiones));
+  const [pctAddiInter, setPctAddiInter] = useState(String(pctAddiIntermediacion));
+  const [pctAddiIvaInput, setPctAddiIvaInput] = useState(String(pctAddiIva));
 
   // Tope de 100% a propósito: son % de las ventas, no valores en pesos —
   // sin este tope, escribir por error una cifra grande (ej. "1500000"
   // pensando en pesos) dispara la utilidad neta a números absurdos.
   const pctInvalido = Number(pctVar) > 100 || Number(pctVar) < 0;
   const pctComInvalido = Number(pctCom) > 100 || Number(pctCom) < 0;
+  const pctAddiInterInvalido = Number(pctAddiInter) > 100 || Number(pctAddiInter) < 0;
+  const pctAddiIvaInvalido = Number(pctAddiIvaInput) > 100 || Number(pctAddiIvaInput) < 0;
 
   const guardar = () => {
     setGastosFijosMensuales(Math.max(0, Number(fijos) || 0));
     setPctGastosVariables(Math.min(100, Math.max(0, Number(pctVar) || 0)));
     setPctComisiones(Math.min(100, Math.max(0, Number(pctCom) || 0)));
+    setPctAddiIntermediacion(Math.min(100, Math.max(0, Number(pctAddiInter) || 0)));
+    setPctAddiIva(Math.min(100, Math.max(0, Number(pctAddiIvaInput) || 0)));
     onCerrar();
   };
 
@@ -1786,9 +1822,45 @@ function ModalConfigurarGastos({ onCerrar, gastosFijosMensuales, setGastosFijosM
               <p className="text-xs text-red-600 mt-1">Debe ser un número entre 0 y 100 — es un porcentaje, no un valor en pesos.</p>
             )}
           </div>
+          <div className="border-t border-gray-100 pt-4">
+            <p className="text-xs font-semibold text-gray-600 mb-2">Comisión de ADDI (2 tarifas aparte, por si ADDI las cambia)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1">Intermediación (%)</label>
+                <div className="relative">
+                  <input
+                    type="number" step="0.001" min="0" max="100" value={pctAddiInter}
+                    onChange={(e) => setPctAddiInter(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 pr-8 text-sm tabular-nums ${pctAddiInterInvalido ? "border-red-400 bg-red-50" : "border-gray-300"}`}
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1">IVA sobre la comisión (%)</label>
+                <div className="relative">
+                  <input
+                    type="number" step="0.001" min="0" max="100" value={pctAddiIvaInput}
+                    onChange={(e) => setPctAddiIvaInput(e.target.value)}
+                    className={`w-full border rounded-lg px-3 py-2 pr-8 text-sm tabular-nums ${pctAddiIvaInvalido ? "border-red-400 bg-red-50" : "border-gray-300"}`}
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+                </div>
+              </div>
+            </div>
+            {(pctAddiInterInvalido || pctAddiIvaInvalido) && (
+              <p className="text-xs text-red-600 mt-1">Deben ser números entre 0 y 100.</p>
+            )}
+          </div>
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={onCerrar} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-600">Cancelar</button>
-            <button onClick={guardar} disabled={pctInvalido || pctComInvalido} className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">Guardar</button>
+            <button
+              onClick={guardar}
+              disabled={pctInvalido || pctComInvalido || pctAddiInterInvalido || pctAddiIvaInvalido}
+              className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Guardar
+            </button>
           </div>
         </div>
       </div>
