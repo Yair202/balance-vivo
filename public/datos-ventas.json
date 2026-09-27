@@ -7657,14 +7657,14 @@
   },
   {
     "fecha": "2026-09-27",
-    "ventasBrutas": 335000,
+    "ventasBrutas": 460000,
     "efectivo": 110000,
-    "tarjetas": 0,
+    "tarjetas": 125000,
     "transferencias": 225000,
     "addi": 0,
-    "costoVentas": 183000,
+    "costoVentas": 241000,
     "gastosFijos": 0,
     "gastosVariables": 0,
-    "numeroVentas": 4
+    "numeroVentas": 5
   }
 ]
