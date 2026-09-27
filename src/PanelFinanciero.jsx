@@ -1888,17 +1888,30 @@ function ModalConfigurarGastos({
 function ModalDetalleVenta({ fecha, titulo, lineas, numeroVentas, mostrarFecha, onCerrar }) {
   const [busqueda, setBusqueda] = useState("");
 
-  // Un solo día: como antes, lo más vendido primero. Período más largo
-  // (mes/año/rango): orden cronológico — así se puede navegar el histórico
-  // de facturas en el orden en que ocurrieron.
-  const base = mostrarFecha
-    ? [...lineas].sort((a, b) => (a.fecha + (a.hora || "")).localeCompare(b.fecha + (b.hora || "")))
-    : [...lineas].sort((a, b) => b.subtotal - a.subtotal);
+  // Orden cronológico (fecha + hora + número de factura) SIEMPRE — así las
+  // líneas de una misma factura quedan una debajo de otra en vez de
+  // dispersas, y se pueden agrupar visualmente a continuación.
+  const base = [...lineas].sort((a, b) =>
+    (a.fecha + (a.hora || "") + (a.numeroFactura || "")).localeCompare(b.fecha + (b.hora || "") + (b.numeroFactura || ""))
+  );
   const filtradas = busqueda.trim()
     ? base.filter((l) => l.producto?.toLowerCase().includes(busqueda.trim().toLowerCase()) || l.numeroFactura?.toLowerCase().includes(busqueda.trim().toLowerCase()))
     : base;
   const totalUnidades = filtradas.reduce((s, l) => s + l.cantidad, 0);
   const totalVenta = filtradas.reduce((s, l) => s + l.subtotal, 0);
+
+  // Agrupar líneas consecutivas de la misma factura, para unificarlas
+  // visualmente (celda de Hora/Factura una sola vez por grupo) y alternar
+  // color de fondo grupo a grupo, así se distinguen fácil unas de otras.
+  const grupos = [];
+  for (const l of filtradas) {
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.numeroFactura === l.numeroFactura && ultimo.fecha === l.fecha) {
+      ultimo.lineas.push(l);
+    } else {
+      grupos.push({ numeroFactura: l.numeroFactura, fecha: l.fecha, hora: l.hora, lineas: [l] });
+    }
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
@@ -1937,17 +1950,26 @@ function ModalDetalleVenta({ fecha, titulo, lineas, numeroVentas, mostrarFecha, 
                 </tr>
               </thead>
               <tbody>
-                {filtradas.map((l, i) => (
-                  <tr key={i} className="border-b border-gray-50">
-                    {mostrarFecha && <td className="py-1.5 pr-2 text-gray-500 whitespace-nowrap">{l.fecha}</td>}
-                    <td className="py-1.5 pr-2 text-gray-500 tabular-nums">{l.hora || "—"}</td>
-                    <td className="py-1.5 pr-2 text-gray-500 whitespace-nowrap">{l.numeroFactura || "—"}</td>
-                    <td className="py-1.5 pr-2">{l.producto}</td>
-                    <td className="py-1.5 text-right tabular-nums text-gray-500">{l.cantidad}</td>
-                    <td className="py-1.5 text-right tabular-nums text-gray-500">{formatoCOP(l.precioUnitario)}</td>
-                    <td className="py-1.5 text-right tabular-nums font-medium">{formatoCOP(l.subtotal)}</td>
-                  </tr>
-                ))}
+                {grupos.map((g, gi) => {
+                  const colorGrupo = gi % 2 === 0 ? "bg-white" : "bg-emerald-50/60";
+                  return g.lineas.map((l, li) => (
+                    <tr key={`${gi}-${li}`} className={`border-b border-gray-100 ${colorGrupo}`}>
+                      {mostrarFecha && li === 0 && (
+                        <td className="py-1.5 pr-2 text-gray-500 whitespace-nowrap align-top" rowSpan={g.lineas.length}>{l.fecha}</td>
+                      )}
+                      {li === 0 && (
+                        <>
+                          <td className="py-1.5 pr-2 text-gray-500 tabular-nums align-top" rowSpan={g.lineas.length}>{l.hora || "—"}</td>
+                          <td className="py-1.5 pr-2 text-gray-500 whitespace-nowrap align-top font-medium" rowSpan={g.lineas.length}>{l.numeroFactura || "—"}</td>
+                        </>
+                      )}
+                      <td className="py-1.5 pr-2">{l.producto}</td>
+                      <td className="py-1.5 text-right tabular-nums text-gray-500">{l.cantidad}</td>
+                      <td className="py-1.5 text-right tabular-nums text-gray-500">{formatoCOP(l.precioUnitario)}</td>
+                      <td className="py-1.5 text-right tabular-nums font-medium">{formatoCOP(l.subtotal)}</td>
+                    </tr>
+                  ));
+                })}
               </tbody>
             </table>
           ) : (
