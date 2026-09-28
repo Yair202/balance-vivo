@@ -7654,5 +7654,17 @@
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 5
+  },
+  {
+    "fecha": "2026-09-28",
+    "ventasBrutas": 65000,
+    "efectivo": 0,
+    "tarjetas": 0,
+    "transferencias": 65000,
+    "addi": 0,
+    "costoVentas": 25000,
+    "gastosFijos": 0,
+    "gastosVariables": 0,
+    "numeroVentas": 1
   }
 ]
