@@ -28,7 +28,7 @@ import {
   TrendingUp, TrendingDown, Wallet, Target,
   CalendarDays, FileText, Percent, Package, Table2, X,
   SlidersHorizontal, RefreshCw, Settings, Warehouse, LayoutDashboard,
-  Clock, CheckCircle2, Receipt, Coins, BarChart3, CalendarClock, Gift,
+  Clock, CheckCircle2, Receipt, Coins, BarChart3, CalendarClock, Gift, Lock,
 } from "lucide-react";
 import PanelInventario from "./PanelInventario";
 import logoCorona from "./assets/logo-corona.jpg";
@@ -1076,49 +1076,24 @@ export default function PanelFinanciero() {
   const [metaMensualOverride, setMetaMensualOverride] = useState(null);
   const [modalGastosAbierto, setModalGastosAbierto] = useState(false);
 
-  // Gastos fijos y variables: Odoo (POS) no los trae, así que se configuran
-  // UNA sola vez aquí y la app los reparte sola por período — no hay que
-  // cargar nada día a día. Se guardan en este navegador (localStorage).
-  const [gastosFijosMensuales, setGastosFijosMensuales] = useState(() => {
-    try { return Number(localStorage.getItem("balance-vivo:gastos-fijos-mensuales")) || 0; } catch { return 0; }
-  });
-  const [pctGastosVariables, setPctGastosVariables] = useState(() => {
-    try {
-      const guardado = localStorage.getItem("balance-vivo:pct-gastos-variables");
-      return guardado === null ? 5 : Number(guardado);
-    } catch { return 5; }
-  });
-  useEffect(() => { try { localStorage.setItem("balance-vivo:gastos-fijos-mensuales", String(gastosFijosMensuales)); } catch {} }, [gastosFijosMensuales]);
-  useEffect(() => { try { localStorage.setItem("balance-vivo:pct-gastos-variables", String(pctGastosVariables)); } catch {} }, [pctGastosVariables]);
-
-  // Comisiones: informativo, NO se resta de la utilidad neta (para no duplicar
-  // con "gastos variables") — solo calcula cuánto representarían sobre las
-  // ventas brutas del período que se esté viendo, al % que el usuario ponga.
-  const [pctComisiones, setPctComisiones] = useState(() => {
-    try {
-      const guardado = localStorage.getItem("balance-vivo:pct-comisiones");
-      return guardado === null ? 3 : Number(guardado);
-    } catch { return 3; }
-  });
-  useEffect(() => { try { localStorage.setItem("balance-vivo:pct-comisiones", String(pctComisiones)); } catch {} }, [pctComisiones]);
-
-  // ADDI cobra 2 tarifas aparte, cada una editable por si ADDI las cambia:
-  // intermediación (~6,5%) + IVA sobre esa comisión (~1,235% = 19% de 6,5%).
-  const [pctAddiIntermediacion, setPctAddiIntermediacion] = useState(() => {
-    try {
-      const guardado = localStorage.getItem("balance-vivo:pct-addi-intermediacion");
-      return guardado === null ? 6.5 : Number(guardado);
-    } catch { return 6.5; }
-  });
-  useEffect(() => { try { localStorage.setItem("balance-vivo:pct-addi-intermediacion", String(pctAddiIntermediacion)); } catch {} }, [pctAddiIntermediacion]);
-
-  const [pctAddiIva, setPctAddiIva] = useState(() => {
-    try {
-      const guardado = localStorage.getItem("balance-vivo:pct-addi-iva");
-      return guardado === null ? 1.235 : Number(guardado);
-    } catch { return 1.235; }
-  });
-  useEffect(() => { try { localStorage.setItem("balance-vivo:pct-addi-iva", String(pctAddiIva)); } catch {} }, [pctAddiIva]);
+  // Gastos fijos/variables, comisiones y tarifas de ADDI: Odoo (POS) no los
+  // trae, así que se configuran desde el modal "Configurar gastos". Viven en
+  // public/config-gastos.json DENTRO DEL REPOSITORIO (no en localStorage) a
+  // propósito: localStorage es por navegador/dispositivo, así que el mismo
+  // valor se veía distinto en el celular, en el PC del almacén y aquí —
+  // guardarlo en el repo lo vuelve UN SOLO valor compartido para todos, y
+  // protegido de un cambio accidental porque hay que meter la contraseña
+  // para guardarlo (ver ModalConfigurarGastos).
+  const configGastosPorDefecto = { gastosFijosMensuales: 0, pctGastosVariables: 5, pctComisiones: 3, pctAddiIntermediacion: 6.5, pctAddiIva: 1.235 };
+  const [configGastos, setConfigGastos] = useState(configGastosPorDefecto);
+  useEffect(() => {
+    fetch("/config-gastos.json", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((datos) => { if (datos) setConfigGastos({ ...configGastosPorDefecto, ...datos }); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const { gastosFijosMensuales, pctGastosVariables, pctComisiones, pctAddiIntermediacion, pctAddiIva } = configGastos;
 
   // Período que se está viendo en TODO el tablero (KPIs, PyG, proyección).
   // undefined = todavía no lo tocó el usuario -> usa el más reciente con datos.
@@ -1728,16 +1703,8 @@ export default function PanelFinanciero() {
       {modalGastosAbierto && (
         <ModalConfigurarGastos
           onCerrar={() => setModalGastosAbierto(false)}
-          gastosFijosMensuales={gastosFijosMensuales}
-          setGastosFijosMensuales={setGastosFijosMensuales}
-          pctGastosVariables={pctGastosVariables}
-          setPctGastosVariables={setPctGastosVariables}
-          pctComisiones={pctComisiones}
-          setPctComisiones={setPctComisiones}
-          pctAddiIntermediacion={pctAddiIntermediacion}
-          setPctAddiIntermediacion={setPctAddiIntermediacion}
-          pctAddiIva={pctAddiIva}
-          setPctAddiIva={setPctAddiIva}
+          config={configGastos}
+          onGuardado={(nuevaConfig) => setConfigGastos(nuevaConfig)}
         />
       )}
 
@@ -1762,15 +1729,19 @@ export default function PanelFinanciero() {
    en vez de tener que cargar cada día a mano. Odoo/el POS no trae estos
    datos porque viven en Contabilidad, no en el punto de venta.
 ----------------------------------------------------------------------- */
-function ModalConfigurarGastos({
-  onCerrar, gastosFijosMensuales, setGastosFijosMensuales, pctGastosVariables, setPctGastosVariables,
-  pctComisiones, setPctComisiones, pctAddiIntermediacion, setPctAddiIntermediacion, pctAddiIva, setPctAddiIva,
-}) {
-  const [fijos, setFijos] = useState(String(gastosFijosMensuales));
-  const [pctVar, setPctVar] = useState(String(pctGastosVariables));
-  const [pctCom, setPctCom] = useState(String(pctComisiones));
-  const [pctAddiInter, setPctAddiInter] = useState(String(pctAddiIntermediacion));
-  const [pctAddiIvaInput, setPctAddiIvaInput] = useState(String(pctAddiIva));
+function ModalConfigurarGastos({ onCerrar, config, onGuardado }) {
+  // Bloqueado por defecto: los campos se ven pero no se pueden tocar hasta
+  // darle "Modificar" — así abrir el modal para solo consultar el valor
+  // nunca lo cambia por accidente.
+  const [desbloqueado, setDesbloqueado] = useState(false);
+  const [fijos, setFijos] = useState(String(config.gastosFijosMensuales));
+  const [pctVar, setPctVar] = useState(String(config.pctGastosVariables));
+  const [pctCom, setPctCom] = useState(String(config.pctComisiones));
+  const [pctAddiInter, setPctAddiInter] = useState(String(config.pctAddiIntermediacion));
+  const [pctAddiIvaInput, setPctAddiIvaInput] = useState(String(config.pctAddiIva));
+  const [clave, setClave] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
 
   // Tope de 100% a propósito: son % de las ventas, no valores en pesos —
   // sin este tope, escribir por error una cifra grande (ej. "1500000"
@@ -1779,15 +1750,49 @@ function ModalConfigurarGastos({
   const pctComInvalido = Number(pctCom) > 100 || Number(pctCom) < 0;
   const pctAddiInterInvalido = Number(pctAddiInter) > 100 || Number(pctAddiInter) < 0;
   const pctAddiIvaInvalido = Number(pctAddiIvaInput) > 100 || Number(pctAddiIvaInput) < 0;
+  const hayInvalidos = pctInvalido || pctComInvalido || pctAddiInterInvalido || pctAddiIvaInvalido;
 
-  const guardar = () => {
-    setGastosFijosMensuales(Math.max(0, Number(fijos) || 0));
-    setPctGastosVariables(Math.min(100, Math.max(0, Number(pctVar) || 0)));
-    setPctComisiones(Math.min(100, Math.max(0, Number(pctCom) || 0)));
-    setPctAddiIntermediacion(Math.min(100, Math.max(0, Number(pctAddiInter) || 0)));
-    setPctAddiIva(Math.min(100, Math.max(0, Number(pctAddiIvaInput) || 0)));
-    onCerrar();
+  const guardar = async () => {
+    if (!clave) { setError("Escribe la contraseña de la app para confirmar."); return; }
+    setGuardando(true);
+    setError("");
+    const nuevaConfig = {
+      gastosFijosMensuales: Math.max(0, Number(fijos) || 0),
+      pctGastosVariables: Math.min(100, Math.max(0, Number(pctVar) || 0)),
+      pctComisiones: Math.min(100, Math.max(0, Number(pctCom) || 0)),
+      pctAddiIntermediacion: Math.min(100, Math.max(0, Number(pctAddiInter) || 0)),
+      pctAddiIva: Math.min(100, Math.max(0, Number(pctAddiIvaInput) || 0)),
+    };
+    try {
+      const resp = await fetch("/api/guardar-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...nuevaConfig, contrasena: clave }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setError(data.error || "No se pudo guardar.");
+        setGuardando(false);
+        return;
+      }
+      onGuardado(nuevaConfig);
+      onCerrar();
+    } catch (e) {
+      setError("No se pudo conectar para guardar — revisa tu conexión.");
+      setGuardando(false);
+    }
   };
+
+  const campo = (etiqueta, valor, onChange, invalido, step = "0.1") => (
+    <div className="relative">
+      <input
+        type="number" step={step} min="0" max="100" value={valor} disabled={!desbloqueado}
+        onChange={(e) => onChange(e.target.value)}
+        className={`w-full border rounded-lg px-3 py-2 pr-8 text-sm tabular-nums ${invalido ? "border-red-400 bg-red-50" : "border-gray-300"} ${!desbloqueado ? "bg-gray-50 text-gray-500" : ""}`}
+      />
+      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
@@ -1800,36 +1805,35 @@ function ModalConfigurarGastos({
           <p className="text-xs text-gray-400">
             Las ventas ya llegan solas desde Odoo. Esto es lo único que Odoo no trae: arriendo,
             nómina, servicios (gastos fijos) y comisiones/empaques/domicilios (gastos variables).
-            Se configura una sola vez y el tablero lo reparte solo entre los días de cada mes.
+            Este valor es <b>el mismo para todos</b> (celular, PC del almacén, aquí) — por eso está
+            bloqueado por defecto, para que no se cambie sin querer.
           </p>
+          {!desbloqueado && (
+            <button
+              onClick={() => setDesbloqueado(true)}
+              className="flex items-center justify-center gap-2 border border-emerald-700 text-emerald-700 hover:bg-emerald-50 text-sm font-semibold py-2 rounded-lg"
+            >
+              <Lock size={14} />Modificar
+            </button>
+          )}
           <div>
             <label className="text-xs font-semibold text-gray-500 block mb-1">Gastos fijos mensuales (arriendo + nómina + servicios)</label>
-            <input type="number" value={fijos} onChange={(e) => setFijos(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm tabular-nums" />
+            <input
+              type="number" value={fijos} disabled={!desbloqueado}
+              onChange={(e) => setFijos(e.target.value)}
+              className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm tabular-nums ${!desbloqueado ? "bg-gray-50 text-gray-500" : ""}`}
+            />
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 block mb-1">Gastos variables (% de las ventas — no en pesos, ej. 6 = 6%)</label>
-            <div className="relative">
-              <input
-                type="number" step="0.1" min="0" max="100" value={pctVar}
-                onChange={(e) => setPctVar(e.target.value)}
-                className={`w-full border rounded-lg px-3 py-2 pr-8 text-sm tabular-nums ${pctInvalido ? "border-red-400 bg-red-50" : "border-gray-300"}`}
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
-            </div>
+            {campo("Gastos variables", pctVar, setPctVar, pctInvalido)}
             {pctInvalido && (
               <p className="text-xs text-red-600 mt-1">Debe ser un número entre 0 y 100 — es un porcentaje, no un valor en pesos.</p>
             )}
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 block mb-1">Comisiones (% de las ventas — solo informativo, no se resta de la utilidad)</label>
-            <div className="relative">
-              <input
-                type="number" step="0.1" min="0" max="100" value={pctCom}
-                onChange={(e) => setPctCom(e.target.value)}
-                className={`w-full border rounded-lg px-3 py-2 pr-8 text-sm tabular-nums ${pctComInvalido ? "border-red-400 bg-red-50" : "border-gray-300"}`}
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
-            </div>
+            {campo("Comisiones", pctCom, setPctCom, pctComInvalido)}
             {pctComInvalido && (
               <p className="text-xs text-red-600 mt-1">Debe ser un número entre 0 y 100 — es un porcentaje, no un valor en pesos.</p>
             )}
@@ -1839,41 +1843,45 @@ function ModalConfigurarGastos({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-gray-500 block mb-1">Intermediación (%)</label>
-                <div className="relative">
-                  <input
-                    type="number" step="0.001" min="0" max="100" value={pctAddiInter}
-                    onChange={(e) => setPctAddiInter(e.target.value)}
-                    className={`w-full border rounded-lg px-3 py-2 pr-8 text-sm tabular-nums ${pctAddiInterInvalido ? "border-red-400 bg-red-50" : "border-gray-300"}`}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
-                </div>
+                {campo("Intermediación", pctAddiInter, setPctAddiInter, pctAddiInterInvalido, "0.001")}
               </div>
               <div>
                 <label className="text-xs font-semibold text-gray-500 block mb-1">IVA sobre la comisión (%)</label>
-                <div className="relative">
-                  <input
-                    type="number" step="0.001" min="0" max="100" value={pctAddiIvaInput}
-                    onChange={(e) => setPctAddiIvaInput(e.target.value)}
-                    className={`w-full border rounded-lg px-3 py-2 pr-8 text-sm tabular-nums ${pctAddiIvaInvalido ? "border-red-400 bg-red-50" : "border-gray-300"}`}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
-                </div>
+                {campo("IVA", pctAddiIvaInput, setPctAddiIvaInput, pctAddiIvaInvalido, "0.001")}
               </div>
             </div>
             {(pctAddiInterInvalido || pctAddiIvaInvalido) && (
               <p className="text-xs text-red-600 mt-1">Deben ser números entre 0 y 100.</p>
             )}
           </div>
+
+          {desbloqueado && (
+            <div className="border-t border-gray-100 pt-4">
+              <label className="text-xs font-semibold text-gray-500 block mb-1">Contraseña de la app (para confirmar el cambio)</label>
+              <input
+                type="password" value={clave} onChange={(e) => { setClave(e.target.value); setError(""); }}
+                placeholder="Escribe la contraseña"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={onCerrar} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-600">Cancelar</button>
-            <button
-              onClick={guardar}
-              disabled={pctInvalido || pctComInvalido || pctAddiInterInvalido || pctAddiIvaInvalido}
-              className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Guardar
-            </button>
+            {desbloqueado && (
+              <button
+                onClick={guardar}
+                disabled={hayInvalidos || guardando}
+                className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {guardando ? "Guardando..." : "Guardar para todos"}
+              </button>
+            )}
           </div>
+          {guardando && (
+            <p className="text-xs text-gray-400 text-center">Puede tardar unos segundos — se está publicando para que todos vean el cambio.</p>
+          )}
         </div>
       </div>
     </div>
