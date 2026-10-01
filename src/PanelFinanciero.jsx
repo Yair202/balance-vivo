@@ -28,7 +28,7 @@ import {
   TrendingUp, TrendingDown, Wallet, Target,
   CalendarDays, FileText, Percent, Package, Table2, X,
   SlidersHorizontal, RefreshCw, Settings, Warehouse, LayoutDashboard,
-  Clock, CheckCircle2, Receipt, Coins, BarChart3, CalendarClock, Gift, Lock,
+  Clock, CheckCircle2, Receipt, Coins, BarChart3, CalendarClock, Gift, Lock, Ticket,
 } from "lucide-react";
 import PanelInventario from "./PanelInventario";
 import logoCorona from "./assets/logo-corona.jpg";
@@ -1527,6 +1527,16 @@ export default function PanelFinanciero() {
           delta={deltaPct(pygActual.ventasBrutas, pygAnoAnterior.ventasBrutas)} deltaEtiqueta="interanual" />
         <TarjetaKPI etiqueta={`Facturas ${etiquetaPeriodo}`} valor={formatoNumeroVentas(pygActual.numeroVentas)} Icono={Receipt}
           delta={deltaPct(pygActual.numeroVentas, pygAnterior.numeroVentas)} deltaEtiqueta={datos.etiquetaAnterior} />
+        <TarjetaKPI
+          etiqueta={`Valor promedio por factura ${etiquetaPeriodo}`}
+          valor={formatoCOP(pygActual.numeroVentas ? pygActual.ventasBrutas / pygActual.numeroVentas : 0)}
+          Icono={Ticket}
+          delta={deltaPct(
+            pygActual.numeroVentas ? pygActual.ventasBrutas / pygActual.numeroVentas : 0,
+            pygAnterior.numeroVentas ? pygAnterior.ventasBrutas / pygAnterior.numeroVentas : 0
+          )}
+          deltaEtiqueta={datos.etiquetaAnterior}
+        />
         <TarjetaKPI
           etiqueta={`Comisiones (${pctComisiones}%) ${etiquetaPeriodo}`}
           valor={formatoCOP(pygActual.ventasBrutas * (pctComisiones / 100))}
