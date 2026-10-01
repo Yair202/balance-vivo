@@ -2,7 +2,10 @@ name: Sincronizar Odoo
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # Antes cada 15 min (96 veces/dia) -- eso solo ya casi agotaba el limite
+    # de 100 despliegues/dia del plan gratis de Vercel, sin dejar margen para
+    # publicar cambios nuestros. Ahora una vez por hora (24 veces/dia).
+    - cron: "0 * * * *"
   workflow_dispatch: {}
 
 permissions:
