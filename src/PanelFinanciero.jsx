@@ -1361,6 +1361,36 @@ export default function PanelFinanciero() {
     return resultado;
   }, [registros, anoActivo]);
 
+  // Valor promedio por factura (ticket promedio), mismo criterio Ene→Dic,
+  // año seleccionado vs. el anterior, con columna de Total (promedio del
+  // año completo, no la suma de los promedios mensuales).
+  const ticketPromedioPorMes = useMemo(() => {
+    if (!registros.length) return [];
+    const ordenados = [...registros].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const promedioDe = (clave) => {
+      const { ventasBrutas, numeroVentas } = sumarRegistros(ordenados.filter((r) => claveMes(r.fecha) === clave));
+      return numeroVentas ? ventasBrutas / numeroVentas : null;
+    };
+    const resultado = [];
+    for (let m = 1; m <= 12; m++) {
+      resultado.push({
+        etiqueta: NOMBRES_MES[m - 1],
+        "Año anterior": promedioDe(`${Number(anoActivo) - 1}-${pad2(m)}`),
+        "Año actual": promedioDe(`${anoActivo}-${pad2(m)}`),
+      });
+    }
+    const promedioAnual = (ano) => {
+      const { ventasBrutas, numeroVentas } = sumarRegistros(ordenados.filter((r) => claveAno(r.fecha) === String(ano)));
+      return numeroVentas ? ventasBrutas / numeroVentas : null;
+    };
+    resultado.push({
+      etiqueta: "Total",
+      "Año anterior": promedioAnual(Number(anoActivo) - 1),
+      "Año actual": promedioAnual(Number(anoActivo)),
+    });
+    return resultado;
+  }, [registros, anoActivo]);
+
   return (
     <div className="max-w-6xl mx-auto px-5 py-6 flex flex-col gap-5 bg-gray-50 min-h-screen">
       {/* Encabezado */}
@@ -1616,6 +1646,25 @@ export default function PanelFinanciero() {
             </Bar>
             <Bar dataKey="Año actual" fill={COLORES_SERIE[0]} radius={[3, 3, 0, 0]}>
               <LabelList dataKey="Año actual" position="top" formatter={(v) => (v == null ? "" : v)} style={{ fontSize: 10, fill: "#374151", fontWeight: 600 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><Ticket size={16} className="text-emerald-700" />Valor promedio por factura por mes · {anoActivo} vs. año anterior</h2>
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={ticketPromedioPorMes}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+            <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`} tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={48} />
+            <Tooltip formatter={(v) => formatoCOP(v)} labelFormatter={(l) => l} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Bar dataKey="Año anterior" fill={COLOR_CONTEXTO} radius={[3, 3, 0, 0]} opacity={0.65}>
+              <LabelList dataKey="Año anterior" position="top" formatter={(v) => (v == null ? "" : formatoCOP(v))} style={{ fontSize: 9, fill: "#9ca3af", fontWeight: 600 }} />
+            </Bar>
+            <Bar dataKey="Año actual" fill={COLORES_SERIE[0]} radius={[3, 3, 0, 0]}>
+              <LabelList dataKey="Año actual" position="top" formatter={(v) => (v == null ? "" : formatoCOP(v))} style={{ fontSize: 9, fill: "#374151", fontWeight: 600 }} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
