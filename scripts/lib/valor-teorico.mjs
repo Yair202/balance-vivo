@@ -31,7 +31,13 @@ async function odooCall(odooUrl, service, method, args) {
 }
 
 export async function obtenerValorTeorico(env) {
-  const { ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD } = env;
+  // .trim() a propósito: variables de entorno pegadas desde el navegador (en
+  // Vercel) a veces arrastran un salto de línea invisible al final, lo que
+  // rompe el nombre de la base de datos en Odoo sin ningún aviso claro.
+  const ODOO_URL = (env.ODOO_URL || "").trim();
+  const ODOO_DB = (env.ODOO_DB || "").trim();
+  const ODOO_USERNAME = (env.ODOO_USERNAME || "").trim();
+  const ODOO_PASSWORD = (env.ODOO_PASSWORD || "").trim();
   if (!ODOO_URL || !ODOO_DB || !ODOO_USERNAME || !ODOO_PASSWORD) {
     throw new Error("Faltan las variables de entorno de Odoo (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_PASSWORD).");
   }
