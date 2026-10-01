@@ -4,8 +4,8 @@ on:
   schedule:
     # Antes cada 15 min (96 veces/dia) -- eso solo ya casi agotaba el limite
     # de 100 despliegues/dia del plan gratis de Vercel, sin dejar margen para
-    # publicar cambios nuestros. Ahora una vez por hora (24 veces/dia).
-    - cron: "0 * * * *"
+    # publicar cambios nuestros. Ahora cada 30 min (48 veces/dia).
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
 permissions:
