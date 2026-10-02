@@ -95,7 +95,7 @@ export default function Arqueo() {
     try {
       const resp = await fetch("/api/valor-teorico-caja", { cache: "no-store" });
       const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "No se pudo traer el valor de Odoo.");
+      if (!resp.ok) throw new Error(data.error || "No se pudo traer el valor del sistema.");
       setSesion(data);
     } catch (e) {
       setError(String(e.message || e));
@@ -201,7 +201,7 @@ export default function Arqueo() {
         </div>
         <div className="flex-1">
           <h1 className="text-lg font-bold leading-tight">Arqueo de caja</h1>
-          <p className="text-xs text-gray-400">Calculadora de apoyo — no cierra la caja en Odoo, solo te dice cuánto debería haber y cuánto contaste.</p>
+          <p className="text-xs text-gray-400">Calculadora de apoyo — no cierra la caja en el sistema, solo te dice cuánto debería haber y cuánto contaste.</p>
         </div>
       </header>
 
@@ -234,17 +234,17 @@ export default function Arqueo() {
 
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-semibold flex items-center gap-2"><Calculator size={16} className="text-emerald-700" />Valor que debe haber en caja (según Odoo)</h2>
+              <h2 className="text-sm font-semibold flex items-center gap-2"><Calculator size={16} className="text-emerald-700" />Valor que debe haber en caja (según el sistema)</h2>
               <button onClick={traerValorTeorico} disabled={cargando} className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline disabled:opacity-50">
                 <RefreshCw size={13} className={cargando ? "animate-spin" : ""} />Actualizar
               </button>
             </div>
             {cargando ? (
-              <p className="text-sm text-gray-400 py-2">Consultando Odoo...</p>
+              <p className="text-sm text-gray-400 py-2">Consultando el sistema...</p>
             ) : error ? (
               <p className="text-sm text-red-600 py-2">{error}</p>
             ) : !sesion?.hayAbierta ? (
-              <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">No hay ninguna caja abierta en Odoo ahora mismo.</p>
+              <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">No hay ninguna caja abierta en el sistema ahora mismo.</p>
             ) : (
               <>
                 <div className="text-3xl font-bold tabular-nums text-emerald-800">{formatoCOP(sesion.teorico)}</div>
@@ -360,8 +360,8 @@ export default function Arqueo() {
               <p className={`text-center text-sm font-semibold mt-3 flex items-center justify-center gap-1.5 ${
                 estadoDiferencia === "cuadra" ? "text-emerald-700" : estadoDiferencia === "faltante" ? "text-red-600" : "text-amber-700"
               }`}>
-                {estadoDiferencia === "cuadra" && <><CheckCircle2 size={15} />Cuadra ✓ — puedes escribir este total en el cierre de Odoo.</>}
-                {estadoDiferencia === "faltante" && <><ShieldAlert size={15} />Tienes un faltante de {formatoCOP(Math.abs(diferencia))} — revisa el conteo antes de cerrar en Odoo.</>}
+                {estadoDiferencia === "cuadra" && <><CheckCircle2 size={15} />Cuadra ✓ — puedes escribir este total en el cierre del sistema.</>}
+                {estadoDiferencia === "faltante" && <><ShieldAlert size={15} />Tienes un faltante de {formatoCOP(Math.abs(diferencia))} — revisa el conteo antes de cerrar en el sistema.</>}
                 {estadoDiferencia === "sobrante" && <><ShieldAlert size={15} />Te está sobrando {formatoCOP(diferencia)} — revisa qué pudo haber pasado.</>}
               </p>
             )}
