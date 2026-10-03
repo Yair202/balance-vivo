@@ -2,10 +2,11 @@ name: Sincronizar Odoo
 
 on:
   schedule:
-    # Antes cada 15 min (96 veces/dia) -- eso solo ya casi agotaba el limite
-    # de 100 despliegues/dia del plan gratis de Vercel, sin dejar margen para
-    # publicar cambios nuestros. Ahora cada 30 min (48 veces/dia).
-    - cron: "*/30 * * * *"
+    # Cada 30 min, pero SOLO en horario de tienda (9am-11:30pm hora Colombia,
+    # UTC-5 -> 14:00-04:30 UTC) -- fuera de ese rango no hay ventas, no vale
+    # la pena gastar cupo de despliegues de Vercel sincronizando de noche.
+    # Los horarios de GitHub Actions son en UTC, por eso "14-23,0-4".
+    - cron: "*/30 14-23,0-4 * * *"
   workflow_dispatch: {}
 
 permissions:
