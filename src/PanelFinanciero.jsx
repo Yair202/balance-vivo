@@ -1860,12 +1860,12 @@ function ModalConfigurarGastos({ onCerrar, config, onGuardado }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
-      <div className="bg-white rounded-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
           <h3 className="font-semibold flex items-center gap-2"><Settings size={17} />Configurar gastos</h3>
           <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
         </div>
-        <div className="p-5 flex flex-col gap-4">
+        <div className="p-5 flex flex-col gap-4 overflow-y-auto">
           <p className="text-xs text-gray-400">
             Las ventas ya llegan solas desde Odoo. Esto es lo único que Odoo no trae: arriendo,
             nómina, servicios (gastos fijos) y comisiones/empaques/domicilios (gastos variables).
