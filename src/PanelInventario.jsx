@@ -8,15 +8,26 @@
  * mismo patrón que PanelFinanciero.jsx con datos-ventas.json.
  *
  * ►► SUSTITUIR AQUÍ: si cambias de POS/ERP, lo único que necesitas producir
- * es un JSON con esta forma (ver también el comentario en sync-odoo.mjs):
+ * es un JSON con esta forma (ver también el comentario en datos-odoo.mjs):
  *   {
  *     productos: [{ id, codigo, nombre, categoria, talla, color,
  *                    stockActual, costo, precioVenta }],
  *     movimientos: [{ fecha:'YYYY-MM-DD', productoId, cantidad,
- *                      tipo:'entrada'|'salida'|'otro' }],
+ *                      tipo:'entrada'|'salida'|'otro',
+ *                      detalle, efecto, referencia }],
  *   }
  * "entrada" = reabastecimiento (llega de proveedor). "salida" = venta o
- * despacho a cliente. El resto del componente no cambia.
+ * despacho a cliente. "tipo" alimenta los gráficos de compras/ventas reales
+ * y NO cambia aunque el movimiento sea un ajuste o traslado (esos quedan
+ * como "otro" ahí). "detalle" es la explicación en español de qué fue el
+ * movimiento (incluye ajustes de inventario, mermas, traslados, producción —
+ * todo lo que antes quedaba invisible dentro de "otro"). "efecto" es cuánto
+ * cambió REALMENTE el stock total con ese movimiento (un traslado interno
+ * mueve unidades pero no cambia el total, por eso su efecto es 0).
+ * "referencia" es el documento de origen en el ERP, para rastrearlo allá.
+ * Estos 3 campos nuevos son opcionales — si faltan, el historial por
+ * producto simplemente no muestra esa columna. El resto del componente no
+ * cambia.
  * ---------------------------------------------------------------------------
  */
 import { useState, useEffect, useMemo } from "react";
@@ -236,6 +247,7 @@ export default function PanelInventario() {
   const [agruparRotacionPor, setAgruparRotacionPor] = useState("categoria"); // 'categoria' | 'talla'
   const [modalReglasAbierto, setModalReglasAbierto] = useState(false);
   const [modalAlertasAbierto, setModalAlertasAbierto] = useState(false);
+  const [productoHistorial, setProductoHistorial] = useState(null); // producto elegido para ver su historial completo (por qué quedó en negativo, etc.)
 
   // Reglas de reabastecimiento: Odoo casi no las trae configuradas (se
   // revisó y solo 1 de 293 productos las tenía), así que se manejan aquí,
@@ -602,8 +614,8 @@ export default function PanelInventario() {
               </thead>
               <tbody>
                 {analisis.alertasReabastecimiento.slice(0, 15).map((p) => (
-                  <tr key={p.id} className="border-b border-gray-50">
-                    <td className="py-1.5 truncate max-w-[180px]" title={p.nombre}>{p.nombre}</td>
+                  <tr key={p.id} onClick={() => setProductoHistorial(p)} className="border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                    <td className="py-1.5 truncate max-w-[180px] text-emerald-700 hover:underline" title={p.nombre}>{p.nombre}</td>
                     <td className="py-1.5 text-gray-500">{p.talla || "—"}</td>
                     <td className={`py-1.5 text-right tabular-nums font-semibold ${p.negativo ? "text-red-700" : "text-amber-600"}`}>
                       {p.negativo && <span className="inline-block mr-1">⚠</span>}{formatoNum(p.stockActual)}
@@ -618,6 +630,7 @@ export default function PanelInventario() {
         ) : (
           <p className="text-sm text-gray-400 text-center py-6">Todo el catálogo está por encima de su mínimo 🎉</p>
         )}
+        <p className="text-[11px] text-gray-400 mt-2">Toca una referencia para ver su historial completo de movimientos (por qué quedó así, cuándo y por qué documento).</p>
       </Tarjeta>
 
       {/* Reabastecimientos + Agotados */}
@@ -650,8 +663,8 @@ export default function PanelInventario() {
                 </thead>
                 <tbody>
                   {analisis.agotados.slice(0, 20).map((p) => (
-                    <tr key={p.id} className="border-b border-gray-50">
-                      <td className="py-1.5 truncate max-w-[180px]" title={p.nombre}>{p.nombre}</td>
+                    <tr key={p.id} onClick={() => setProductoHistorial(p)} className="border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                      <td className="py-1.5 truncate max-w-[180px] text-emerald-700 hover:underline" title={p.nombre}>{p.nombre}</td>
                       <td className="py-1.5 text-gray-500">{p.talla || "—"}</td>
                       <td className={`py-1.5 text-right tabular-nums font-medium ${p.ventasHistoricas > 0 ? "text-red-600" : "text-gray-400"}`}>{formatoNum(p.ventasHistoricas)}</td>
                     </tr>
@@ -701,7 +714,7 @@ export default function PanelInventario() {
       </Tarjeta>
 
       {modalAgotadosAbierto && (
-        <ModalAgotados agotados={analisis.agotados} onCerrar={() => setModalAgotadosAbierto(false)} />
+        <ModalAgotados agotados={analisis.agotados} onCerrar={() => setModalAgotadosAbierto(false)} onVerHistorial={setProductoHistorial} />
       )}
 
       {productoDesglose && (
@@ -723,7 +736,11 @@ export default function PanelInventario() {
       )}
 
       {modalAlertasAbierto && (
-        <ModalAlertasReabastecimiento alertas={analisis.alertasReabastecimiento} onCerrar={() => setModalAlertasAbierto(false)} />
+        <ModalAlertasReabastecimiento alertas={analisis.alertasReabastecimiento} onCerrar={() => setModalAlertasAbierto(false)} onVerHistorial={setProductoHistorial} />
+      )}
+
+      {productoHistorial && (
+        <ModalHistorialProducto producto={productoHistorial} movimientos={datos.movimientos} onCerrar={() => setProductoHistorial(null)} />
       )}
     </div>
   );
@@ -843,7 +860,7 @@ function ModalDesgloseGrupo({ grupo, onCerrar }) {
    Modal con la lista completa de referencias agotadas (la tarjeta y el KPI
    solo muestran una vista previa) — con buscador por nombre/categoría.
 ----------------------------------------------------------------------- */
-function ModalAgotados({ agotados, onCerrar }) {
+function ModalAgotados({ agotados, onCerrar, onVerHistorial }) {
   const [buscar, setBuscar] = useState("");
   const filtrados = useMemo(() => {
     const q = buscar.trim().toLowerCase();
@@ -878,8 +895,8 @@ function ModalAgotados({ agotados, onCerrar }) {
               </thead>
               <tbody>
                 {filtrados.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-50">
-                    <td className="py-1.5 pr-2">{p.nombre}</td>
+                  <tr key={p.id} onClick={() => onVerHistorial(p)} className="border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                    <td className="py-1.5 pr-2 text-emerald-700 hover:underline">{p.nombre}</td>
                     <td className="py-1.5 pr-2 text-gray-500">{p.categoria}</td>
                     <td className="py-1.5 pr-2 text-gray-500">{p.talla || "—"}</td>
                     <td className={`py-1.5 text-right tabular-nums font-medium ${p.ventasHistoricas > 0 ? "text-red-600" : "text-gray-400"}`}>{formatoNum(p.ventasHistoricas)}</td>
@@ -997,7 +1014,7 @@ function ModalReglasReabastecimiento({ categorias, minimoDefecto, setMinimoDefec
    Listado completo de alertas de reabastecimiento (la tarjeta solo
    muestra una vista previa) — con buscador.
 ----------------------------------------------------------------------- */
-function ModalAlertasReabastecimiento({ alertas, onCerrar }) {
+function ModalAlertasReabastecimiento({ alertas, onCerrar, onVerHistorial }) {
   const [buscar, setBuscar] = useState("");
   const filtrados = useMemo(() => {
     const q = buscar.trim().toLowerCase();
@@ -1034,8 +1051,8 @@ function ModalAlertasReabastecimiento({ alertas, onCerrar }) {
               </thead>
               <tbody>
                 {filtrados.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-50">
-                    <td className="py-1.5 pr-2">{p.nombre}</td>
+                  <tr key={p.id} onClick={() => onVerHistorial(p)} className="border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                    <td className="py-1.5 pr-2 text-emerald-700 hover:underline">{p.nombre}</td>
                     <td className="py-1.5 pr-2 text-gray-500">{p.categoria}</td>
                     <td className="py-1.5 pr-2 text-gray-500">{p.talla || "—"}</td>
                     <td className={`py-1.5 text-right tabular-nums font-semibold ${p.negativo ? "text-red-700" : "text-amber-600"}`}>
@@ -1049,6 +1066,93 @@ function ModalAlertasReabastecimiento({ alertas, onCerrar }) {
             </table>
           ) : (
             <p className="text-sm text-gray-400 text-center py-6">Sin resultados para "{buscar}".</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -----------------------------------------------------------------------
+   Historial completo de UNA referencia — responde "¿por qué quedó en
+   negativo?" mostrando TODOS sus movimientos (incluye ajustes y traslados
+   que antes quedaban invisibles dentro del cajón "otro"), con el saldo
+   reconstruido después de cada uno para ver exactamente cuál lo mandó a
+   negativo y cuándo. El saldo se reconstruye HACIA ATRÁS desde el stock
+   actual (que sí es el dato real y fresco de Odoo), así que es preciso
+   cerca de hoy aunque algún movimiento muy viejo no esté en el histórico
+   sincronizado (~2 años).
+----------------------------------------------------------------------- */
+function ModalHistorialProducto({ producto, movimientos, onCerrar }) {
+  const filas = useMemo(() => {
+    const propios = movimientos.filter((m) => m.productoId === producto.id);
+    // Orden cronológico ascendente para acumular el saldo. Entre movimientos
+    // del mismo día se respeta el orden en que Odoo los devolvió (el sort
+    // de JS es estable), que es aproximadamente el orden real.
+    const ascendente = [...propios].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    let acumulado = 0;
+    const conSaldoRelativo = ascendente.map((m) => {
+      // "efecto" es el dato nuevo (cuánto cambió el stock total); si el
+      // histórico sincronizado es de antes de este cambio, se calcula igual
+      // a partir de "tipo" para no perder la cuenta.
+      const efecto = m.efecto ?? (m.tipo === "entrada" ? m.cantidad : m.tipo === "salida" ? -m.cantidad : 0);
+      acumulado += efecto;
+      return { ...m, efecto, saldoRelativo: acumulado };
+    });
+    const ultimoRelativo = conSaldoRelativo.length ? conSaldoRelativo[conSaldoRelativo.length - 1].saldoRelativo : 0;
+    const offset = producto.stockActual - ultimoRelativo;
+    return conSaldoRelativo
+      .map((m) => ({ ...m, saldo: m.saldoRelativo + offset }))
+      .reverse(); // más reciente primero
+  }, [movimientos, producto]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-5 z-50" onClick={onCerrar}>
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <div>
+            <h3 className="font-semibold">{producto.nombre}</h3>
+            <p className="text-xs text-gray-400">
+              {producto.categoria}{producto.talla ? ` · Talla ${producto.talla}` : ""} · Stock actual:{" "}
+              <span className={producto.stockActual < 0 ? "text-red-600 font-semibold" : "font-semibold text-gray-600"}>{formatoNum(producto.stockActual)}</span>
+            </p>
+          </div>
+          <button onClick={onCerrar} className="p-1.5 rounded-lg hover:bg-gray-100 flex-shrink-0"><X size={16} /></button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4 flex-1">
+          {filas.length ? (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-xs text-gray-400 border-b border-gray-200">
+                  <th className="text-left font-medium py-1.5 pr-2">Fecha</th>
+                  <th className="text-left font-medium py-1.5 pr-2">Movimiento</th>
+                  <th className="text-left font-medium py-1.5 pr-2">Referencia</th>
+                  <th className="text-right font-medium py-1.5 pr-2">Cantidad</th>
+                  <th className="text-right font-medium py-1.5">Saldo después</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filas.map((m, i) => (
+                  <tr key={i} className="border-b border-gray-50">
+                    <td className="py-1.5 pr-2 tabular-nums text-gray-500 whitespace-nowrap">{m.fecha}</td>
+                    <td className="py-1.5 pr-2">
+                      <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${m.efecto > 0 ? "text-blue-700 bg-blue-50" : m.efecto < 0 ? "text-emerald-700 bg-emerald-50" : "text-gray-500 bg-gray-100"}`}>
+                        {m.detalle || (m.tipo === "entrada" ? "Entrada" : m.tipo === "salida" ? "Salida" : "Otro movimiento")}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-2 text-gray-500 truncate max-w-[140px]" title={m.referencia}>{m.referencia || "—"}</td>
+                    <td className={`py-1.5 pr-2 text-right tabular-nums font-medium ${m.efecto > 0 ? "text-blue-700" : m.efecto < 0 ? "text-emerald-700" : "text-gray-400"}`}>
+                      {m.efecto > 0 ? "+" : ""}{formatoNum(m.efecto)}
+                    </td>
+                    <td className={`py-1.5 text-right tabular-nums font-semibold ${m.saldo < 0 ? "text-red-600" : "text-gray-700"}`}>
+                      {formatoNum(m.saldo)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-6">Esta referencia no tiene movimientos registrados en el período sincronizado (~2 años).</p>
           )}
         </div>
       </div>

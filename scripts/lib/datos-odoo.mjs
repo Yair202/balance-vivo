@@ -198,8 +198,17 @@ export async function obtenerDatosOdoo(env, { log = () => {} } = {}) {
   const movimientosRaw = await buscarTodo(
     "stock.move",
     [["date", ">=", desdeStr], ["date", "<", hastaStr], ["state", "=", "done"]],
-    ["date", "product_id", "product_qty", "location_id", "location_dest_id"]
+    ["date", "product_id", "product_qty", "location_id", "location_dest_id", "reference"]
   );
+  // "tipo" (entrada/salida/otro) se deja EXACTA como estaba — de eso dependen
+  // los gráficos de compras/ventas reales (Reabastecimientos, Más vendidos).
+  // Lo nuevo es "detalle" (clasificación más fina, para explicarle al usuario
+  // QUÉ paso con un movimiento que antes caía todo en el cajón "otro": ajuste
+  // manual de inventario, merma, traslado entre bodegas, producción) y
+  // "efecto" (cuánto cambió REALMENTE el stock total con ese movimiento — un
+  // traslado interno no cambia el total aunque mueva unidades de un lado a
+  // otro, por eso su efecto es 0). "referencia" es el documento de origen en
+  // Odoo (factura/picking/ajuste) para poder rastrear el movimiento allá.
   const movimientos = movimientosRaw
     .filter((m) => m.product_id)
     .map((m) => {
@@ -208,7 +217,30 @@ export async function obtenerDatosOdoo(env, { log = () => {} } = {}) {
       let tipo = "otro";
       if (usoOrigen === "supplier" && usoDestino === "internal") tipo = "entrada";
       else if (usoOrigen === "internal" && usoDestino === "customer") tipo = "salida";
-      return { fecha: fechaLocalISO(m.date, TZ_OFFSET_HORAS), productoId: m.product_id[0], cantidad: m.product_qty, tipo };
+
+      let detalle = "Otro movimiento";
+      let efecto = 0;
+      if (usoOrigen === "internal" && usoDestino === "internal") {
+        detalle = "Traslado interno";
+        efecto = 0;
+      } else if (usoDestino === "internal" && usoOrigen !== "internal") {
+        efecto = m.product_qty;
+        detalle = usoOrigen === "supplier" ? "Entrada (compra a proveedor)"
+          : usoOrigen === "inventory" ? "Ajuste de inventario (+)"
+          : usoOrigen === "production" ? "Entrada (producción)"
+          : "Entrada";
+      } else if (usoOrigen === "internal" && usoDestino !== "internal") {
+        efecto = -m.product_qty;
+        detalle = usoDestino === "customer" ? "Salida (venta)"
+          : usoDestino === "inventory" ? "Ajuste de inventario / merma (−)"
+          : usoDestino === "production" ? "Salida (producción)"
+          : "Salida";
+      }
+
+      return {
+        fecha: fechaLocalISO(m.date, TZ_OFFSET_HORAS), productoId: m.product_id[0], cantidad: m.product_qty, tipo,
+        detalle, efecto, referencia: m.reference || "",
+      };
     });
   log(`Listo: ${productosInventario.length} productos, ${movimientos.length} movimientos.`);
 
