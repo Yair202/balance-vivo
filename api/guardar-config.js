@@ -35,6 +35,11 @@ const CAMPOS_NUMERICOS = [
   "pctAddiIva",
 ];
 
+// Aparte de los % anteriores: cuál miércoles hábil del mes siguiente paga
+// ADDI (1 = primero, 2 = segundo, ...). No es un %, así que tiene su propio
+// rango de validación (1-5, nunca hay un 6to miércoles en un mes).
+const CAMPO_NUMERO_MIERCOLES = "addiNumeroMiercolesHabil";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método no permitido" });
@@ -65,6 +70,13 @@ export default async function handler(req, res) {
     }
     config[campo] = campo === "gastosFijosMensuales" ? v : Math.min(100, v);
   }
+
+  const numeroMiercoles = Number(valores[CAMPO_NUMERO_MIERCOLES]);
+  if (!Number.isInteger(numeroMiercoles) || numeroMiercoles < 1 || numeroMiercoles > 5) {
+    res.status(400).json({ error: `Valor inválido para ${CAMPO_NUMERO_MIERCOLES}` });
+    return;
+  }
+  config[CAMPO_NUMERO_MIERCOLES] = numeroMiercoles;
 
   const headers = {
     Authorization: `Bearer ${token}`,

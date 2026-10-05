@@ -273,17 +273,20 @@ function FilaPyG({ etiqueta, valor, negativo, destacado, sub }) {
 }
 
 /* -----------------------------------------------------------------------
-   ADDI pendiente por cobrar: ADDI paga el segundo miércoles HÁBIL del mes
-   siguiente al de la venta, y descuenta 2 tarifas configurables (% de
-   intermediación + % de IVA sobre esa comisión — por defecto 6,5% y 1,235%,
-   editables por si ADDI las cambia). Se agrupa lo vendido por ADDI mes a
-   mes y se calcula cuándo entra la plata y cuánto neto — para poder
-   controlar ese flujo de caja diferido.
-   ►► Ojo: "hábil" aquí solo excluye sábados/domingos (el segundo miércoles
-   del mes calendario), no festivos colombianos — si un 2do miércoles cae
+   ADDI pendiente por cobrar: ADDI paga el N-ésimo miércoles HÁBIL del mes
+   siguiente al de la venta (N es configurable — empezó siendo el 2do, ADDI
+   lo cambió al 1ro en oct/2026, y lo puede volver a cambiar, así que vive
+   en "Configurar gastos" como un número más), y descuenta 2 tarifas
+   configurables (% de intermediación + % de IVA sobre esa comisión — por
+   defecto 6,5% y 1,235%, editables por si ADDI las cambia también). Se
+   agrupa lo vendido por ADDI mes a mes y se calcula cuándo entra la plata
+   y cuánto neto — para poder controlar ese flujo de caja diferido.
+   ►► Ojo: "hábil" aquí solo excluye sábados/domingos (el N-ésimo miércoles
+   del mes calendario), no festivos colombianos — si ese miércoles cae
    festivo, la fecha real de pago puede correrse uno o dos días.
 ----------------------------------------------------------------------- */
-function segundoMiercolesHabilMesSiguiente(ano, mes) { // mes 1-12, calcula sobre el mes siguiente
+const ORDINALES_ES = { 1: "primer", 2: "segundo", 3: "tercer", 4: "cuarto", 5: "quinto" };
+function nEsimoMiercolesHabilMesSiguiente(ano, mes, n) { // mes 1-12, calcula sobre el mes siguiente
   let m = mes + 1, a = ano;
   if (m > 12) { m = 1; a += 1; }
   const miercoles = [];
@@ -292,9 +295,9 @@ function segundoMiercolesHabilMesSiguiente(ano, mes) { // mes 1-12, calcula sobr
     if (d.getDay() === 3) miercoles.push(new Date(d));
     d.setDate(d.getDate() + 1);
   }
-  return miercoles[1];
+  return miercoles[n - 1];
 }
-function PanelAddi({ registros, pctAddiIntermediacion, pctAddiIva }) {
+function PanelAddi({ registros, pctAddiIntermediacion, pctAddiIva, addiNumeroMiercolesHabil }) {
   const pctComisionTotal = pctAddiIntermediacion + pctAddiIva;
 
   const meses = useMemo(() => {
@@ -308,13 +311,13 @@ function PanelAddi({ registros, pctAddiIntermediacion, pctAddiIva }) {
     return [...porMes.entries()]
       .map(([clave, vendido]) => {
         const [ano, mes] = clave.split("-").map(Number);
-        const fechaPago = segundoMiercolesHabilMesSiguiente(ano, mes);
+        const fechaPago = nEsimoMiercolesHabilMesSiguiente(ano, mes, addiNumeroMiercolesHabil);
         const comision = vendido * (pctComisionTotal / 100);
         const neto = vendido - comision;
         return { clave, ano, mes, vendido, comision, neto, fechaPago, pagado: fechaPago < hoy };
       })
       .sort((a, b) => b.clave.localeCompare(a.clave));
-  }, [registros, pctComisionTotal]);
+  }, [registros, pctComisionTotal, addiNumeroMiercolesHabil]);
 
   const pendientes = meses.filter((m) => !m.pagado);
   const totalPendiente = pendientes.reduce((s, m) => s + m.neto, 0);
@@ -330,7 +333,7 @@ function PanelAddi({ registros, pctAddiIntermediacion, pctAddiIva }) {
         <Clock size={16} className="text-emerald-700" />ADDI — pendiente por cobrar
       </h2>
       <p className="text-xs text-gray-400 mb-4">
-        ADDI paga el segundo miércoles hábil del mes siguiente a la venta, descontando {pctComisionTotal.toFixed(3)}% de
+        ADDI paga el {ORDINALES_ES[addiNumeroMiercolesHabil] || `${addiNumeroMiercolesHabil}°`} miércoles hábil del mes siguiente a la venta, descontando {pctComisionTotal.toFixed(3)}% de
         comisión ({pctAddiIntermediacion}% intermediación + {pctAddiIva}% IVA).
       </p>
 
@@ -1084,7 +1087,7 @@ export default function PanelFinanciero() {
   // guardarlo en el repo lo vuelve UN SOLO valor compartido para todos, y
   // protegido de un cambio accidental porque hay que meter la contraseña
   // para guardarlo (ver ModalConfigurarGastos).
-  const configGastosPorDefecto = { gastosFijosMensuales: 0, pctGastosVariables: 5, pctComisiones: 3, pctAddiIntermediacion: 6.5, pctAddiIva: 1.235 };
+  const configGastosPorDefecto = { gastosFijosMensuales: 0, pctGastosVariables: 5, pctComisiones: 3, pctAddiIntermediacion: 6.5, pctAddiIva: 1.235, addiNumeroMiercolesHabil: 1 };
   const [configGastos, setConfigGastos] = useState(configGastosPorDefecto);
   useEffect(() => {
     fetch("/config-gastos.json", { cache: "no-store" })
@@ -1093,7 +1096,7 @@ export default function PanelFinanciero() {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const { gastosFijosMensuales, pctGastosVariables, pctComisiones, pctAddiIntermediacion, pctAddiIva } = configGastos;
+  const { gastosFijosMensuales, pctGastosVariables, pctComisiones, pctAddiIntermediacion, pctAddiIva, addiNumeroMiercolesHabil } = configGastos;
 
   // Período que se está viendo en TODO el tablero (KPIs, PyG, proyección).
   // undefined = todavía no lo tocó el usuario -> usa el más reciente con datos.
@@ -1747,7 +1750,7 @@ export default function PanelFinanciero() {
         </div>
       </section>
 
-      <PanelAddi registros={registros} pctAddiIntermediacion={pctAddiIntermediacion} pctAddiIva={pctAddiIva} />
+      <PanelAddi registros={registros} pctAddiIntermediacion={pctAddiIntermediacion} pctAddiIva={pctAddiIva} addiNumeroMiercolesHabil={addiNumeroMiercolesHabil} />
 
       <PanelAnalisisPatron registros={registros} />
 
@@ -1798,6 +1801,7 @@ function ModalConfigurarGastos({ onCerrar, config, onGuardado }) {
   const [pctCom, setPctCom] = useState(String(config.pctComisiones));
   const [pctAddiInter, setPctAddiInter] = useState(String(config.pctAddiIntermediacion));
   const [pctAddiIvaInput, setPctAddiIvaInput] = useState(String(config.pctAddiIva));
+  const [addiNumeroMiercoles, setAddiNumeroMiercoles] = useState(String(config.addiNumeroMiercolesHabil ?? 1));
   const [clave, setClave] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
@@ -1821,6 +1825,7 @@ function ModalConfigurarGastos({ onCerrar, config, onGuardado }) {
       pctComisiones: Math.min(100, Math.max(0, Number(pctCom) || 0)),
       pctAddiIntermediacion: Math.min(100, Math.max(0, Number(pctAddiInter) || 0)),
       pctAddiIva: Math.min(100, Math.max(0, Number(pctAddiIvaInput) || 0)),
+      addiNumeroMiercolesHabil: Number(addiNumeroMiercoles) || 1,
     };
     try {
       const resp = await fetch("/api/guardar-config", {
@@ -1912,6 +1917,23 @@ function ModalConfigurarGastos({ onCerrar, config, onGuardado }) {
             {(pctAddiInterInvalido || pctAddiIvaInvalido) && (
               <p className="text-xs text-red-600 mt-1">Deben ser números entre 0 y 100.</p>
             )}
+          </div>
+          <div className="border-t border-gray-100 pt-4">
+            <label className="text-xs font-semibold text-gray-500 block mb-1">
+              Fecha de pago de ADDI (día de la semana hábil del mes siguiente)
+            </label>
+            <select
+              value={addiNumeroMiercoles} disabled={!desbloqueado}
+              onChange={(e) => setAddiNumeroMiercoles(e.target.value)}
+              className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm ${!desbloqueado ? "bg-gray-50 text-gray-500" : ""}`}
+            >
+              <option value="1">1er miércoles hábil</option>
+              <option value="2">2do miércoles hábil</option>
+              <option value="3">3er miércoles hábil</option>
+              <option value="4">4to miércoles hábil</option>
+              <option value="5">5to miércoles hábil</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Cámbialo aquí si ADDI vuelve a mover su fecha de pago — no hace falta tocar código.</p>
           </div>
 
           {desbloqueado && (

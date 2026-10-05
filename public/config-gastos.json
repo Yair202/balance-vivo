@@ -3,5 +3,6 @@
   "pctGastosVariables": 5,
   "pctComisiones": 3,
   "pctAddiIntermediacion": 6.5,
-  "pctAddiIva": 1.235
+  "pctAddiIva": 1.235,
+  "addiNumeroMiercolesHabil": 1
 }
