@@ -76,7 +76,12 @@ export async function listarArqueos(env, { desde, hasta, limite = 60 } = {}) {
   let filtro = "";
   if (desde) filtro += `&fecha=gte.${desde}`;
   if (hasta) filtro += `&fecha=lte.${hasta}`;
-  return supaFetch(env, `arqueos?order=creado_en.desc&limit=${limite}${filtro}`);
+  const arqueos = await supaFetch(env, `arqueos?order=creado_en.desc&limit=${limite}${filtro}`);
+  if (!arqueos.length) return arqueos;
+
+  // Gastos de caja menor que se usaron en cada arqueo, para mostrarlos en el historial.
+  const gastos = await supaFetch(env, `gastos_caja?arqueo_id=in.(${arqueos.map((a) => a.id).join(",")})&order=hora.asc`);
+  return arqueos.map((a) => ({ ...a, gastos: gastos.filter((g) => g.arqueo_id === a.id) }));
 }
 
 export async function ajustarArqueo(env, id, { notaAdmin, resuelto }) {

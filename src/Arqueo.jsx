@@ -22,7 +22,11 @@ const DENOMINACIONES = [
 ];
 
 const formatoCOP = (v) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(v || 0);
-const hoyISO = () => new Date().toISOString().slice(0, 10);
+// Fecha en hora de Colombia (no UTC): con toISOString() todo lo que se
+// guardaba después de las 7 pm quedaba con la fecha del día siguiente.
+const fechaBogota = (d = new Date()) => new Date(d).toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
+const hoyISO = () => fechaBogota();
+const formatoHora = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }) : "";
 
 function LoginArqueo({ onIngresar }) {
   const [clave, setClave] = useState("");
@@ -445,18 +449,29 @@ function HistorialArqueos() {
           <div key={a.id} className={`rounded-2xl border p-4 ${color}`}>
             <div className="flex items-center justify-between mb-2">
               <div>
-                <div className="text-sm font-semibold">{a.fecha} · {a.responsable}</div>
+                <div className="text-sm font-semibold">{a.creado_en ? fechaBogota(a.creado_en) : a.fecha} · {a.responsable}{a.creado_en && <span className="font-normal text-gray-500"> · {formatoHora(a.creado_en)}</span>}</div>
                 {a.sesion_odoo && <div className="text-xs text-gray-400">{a.sesion_odoo}</div>}
               </div>
               <div className={`text-sm font-bold tabular-nums ${colorTexto}`}>
                 {a.diferencia >= 0 ? "+" : ""}{formatoCOP(a.diferencia)}
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-xs text-gray-500 mb-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-gray-500 mb-2">
               <div>Debía haber: <b className="text-gray-700">{formatoCOP(a.teorico)}</b></div>
-              <div>Contado+gastos: <b className="text-gray-700">{formatoCOP(a.total_ajustado)}</b></div>
+              <div>Contado: <b className="text-gray-700">{formatoCOP(a.contado)}</b></div>
+              <div>Gastos: <b className="text-gray-700">{formatoCOP(a.gastos_total)}</b></div>
               <div>Estado: <b className={colorTexto}>{a.resuelto ? "Resuelto" : "Pendiente"}</b></div>
             </div>
+            {a.gastos?.length > 0 && (
+              <ul className="text-xs text-gray-600 bg-white/60 rounded-lg px-2.5 py-1.5 mb-2 flex flex-col gap-0.5">
+                {a.gastos.map((g) => (
+                  <li key={g.id} className="flex justify-between gap-2">
+                    <span>{g.descripcion}{g.creado_por && <span className="text-gray-400"> · {g.creado_por}</span>}</span>
+                    <span className="tabular-nums font-semibold">{formatoCOP(g.valor)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             {a.nota_admin && <p className="text-xs text-gray-600 bg-white/60 rounded-lg px-2.5 py-1.5 mb-2">📝 {a.nota_admin}</p>}
 
             {a.estado !== "cuadra" && !a.resuelto && (
