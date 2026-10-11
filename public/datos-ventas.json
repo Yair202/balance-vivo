@@ -1,41 +1,5 @@
 [
   {
-    "fecha": "2024-10-08",
-    "ventasBrutas": 291000,
-    "efectivo": 50000,
-    "tarjetas": 203000,
-    "transferencias": 38000,
-    "addi": 0,
-    "costoVentas": 48000,
-    "gastosFijos": 0,
-    "gastosVariables": 0,
-    "numeroVentas": 4
-  },
-  {
-    "fecha": "2024-10-09",
-    "ventasBrutas": 706000,
-    "efectivo": 706000,
-    "tarjetas": 0,
-    "transferencias": 0,
-    "addi": 0,
-    "costoVentas": 195000,
-    "gastosFijos": 0,
-    "gastosVariables": 0,
-    "numeroVentas": 10
-  },
-  {
-    "fecha": "2024-10-10",
-    "ventasBrutas": 351000,
-    "efectivo": 183000,
-    "tarjetas": 168000,
-    "transferencias": 0,
-    "addi": 0,
-    "costoVentas": 199000,
-    "gastosFijos": 0,
-    "gastosVariables": 0,
-    "numeroVentas": 3
-  },
-  {
     "fecha": "2024-10-11",
     "ventasBrutas": 458000,
     "efectivo": 295000,
@@ -7678,5 +7642,41 @@
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 3
+  },
+  {
+    "fecha": "2026-10-08",
+    "ventasBrutas": 361000,
+    "efectivo": 208000,
+    "tarjetas": 0,
+    "transferencias": 153000,
+    "addi": 0,
+    "costoVentas": 247000,
+    "gastosFijos": 0,
+    "gastosVariables": 0,
+    "numeroVentas": 5
+  },
+  {
+    "fecha": "2026-10-09",
+    "ventasBrutas": 616000,
+    "efectivo": 375000,
+    "tarjetas": 0,
+    "transferencias": 70000,
+    "addi": 171000,
+    "costoVentas": 304000,
+    "gastosFijos": 0,
+    "gastosVariables": 0,
+    "numeroVentas": 5
+  },
+  {
+    "fecha": "2026-10-10",
+    "ventasBrutas": 611000,
+    "efectivo": 349000,
+    "tarjetas": 0,
+    "transferencias": 262000,
+    "addi": 0,
+    "costoVentas": 374000,
+    "gastosFijos": 0,
+    "gastosVariables": 0,
+    "numeroVentas": 7
   }
 ]
