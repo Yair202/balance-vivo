@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Lock, RefreshCw, Plus, Trash2, Calculator, History, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Lock, RefreshCw, Plus, Trash2, Calculator, History, ShieldAlert, CheckCircle2, Wallet, Users, Settings, X } from "lucide-react";
 import logoCorona from "./assets/logo-corona.jpg";
 
 const CLAVE_STORAGE = "arqueo_auth";
@@ -93,6 +93,25 @@ export default function Arqueo() {
   const [guardado, setGuardado] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState("");
 
+  const [empleados, setEmpleados] = useState([]);
+  // Base que se deja en caja para el día siguiente — por defecto la misma con
+  // la que abrió la sesión en Odoo. No se recoge: lo que se guarda es contado − base.
+  const [base, setBase] = useState("");
+  const [baseTocada, setBaseTocada] = useState(false);
+  useEffect(() => {
+    if (!baseTocada && sesion?.hayAbierta) setBase(String(sesion.saldoApertura || 0));
+  }, [sesion, baseTocada]);
+
+  const traerEmpleados = async () => {
+    try {
+      const resp = await fetch("/api/arqueo-admin", { cache: "no-store" });
+      const data = await resp.json();
+      if (resp.ok) setEmpleados(data);
+    } catch {
+      // sin lista: el select queda solo con el nombre ya elegido
+    }
+  };
+
   const traerValorTeorico = async () => {
     setCargando(true);
     setError("");
@@ -122,7 +141,7 @@ export default function Arqueo() {
   };
 
   useEffect(() => {
-    if (autenticado) { traerValorTeorico(); traerGastos(); }
+    if (autenticado) { traerValorTeorico(); traerGastos(); traerEmpleados(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autenticado]);
 
@@ -136,6 +155,7 @@ export default function Arqueo() {
   const diferencia = totalAjustado - teorico;
   const CUADRA_TOLERANCIA = 50;
   const estadoDiferencia = Math.abs(diferencia) < CUADRA_TOLERANCIA ? "cuadra" : diferencia < 0 ? "faltante" : "sobrante";
+  const paraGuardar = Math.max(0, totalContado - (Number(base) || 0));
 
   const cambiarCantidad = (i, v) => {
     const copia = [...cantidades];
@@ -171,7 +191,7 @@ export default function Arqueo() {
   };
 
   const guardarArqueo = async () => {
-    if (!responsable.trim()) { setErrorGuardar("Escribe el nombre de quién hace el arqueo."); return; }
+    if (!responsable.trim()) { setErrorGuardar("Elige el nombre de quién hace el arqueo."); return; }
     setGuardando(true);
     setErrorGuardar("");
     try {
@@ -181,12 +201,14 @@ export default function Arqueo() {
         body: JSON.stringify({
           fecha: hoyISO(), responsable: responsable.trim(), sesionOdoo: sesion?.sesion || null,
           teorico, contado: totalContado, gastosTotal: totalGastos, gastosIds: gastos.map((g) => g.id),
+          base: Number(base) || 0,
         }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "No se pudo guardar el arqueo.");
       setGuardado(true);
       setCantidades(Array(DENOMINACIONES.length).fill(""));
+      setBaseTocada(false);
       traerGastos();
     } catch (e) {
       setErrorGuardar(String(e.message || e));
@@ -222,18 +244,31 @@ export default function Arqueo() {
         >
           <History size={14} />Historial
         </button>
+        <button
+          onClick={() => setVista("admin")}
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold border-b-2 -mb-px ${vista === "admin" ? "border-emerald-700 text-emerald-700" : "border-transparent text-gray-400"}`}
+        >
+          <Wallet size={14} />Administrador
+        </button>
       </div>
 
       {vista === "historial" ? (
         <HistorialArqueos />
+      ) : vista === "admin" ? (
+        <PanelAdmin onAjustesGuardados={traerEmpleados} />
       ) : (
         <>
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             <label className="text-xs font-semibold text-gray-500 block mb-1">Responsable del arqueo</label>
-            <input
-              type="text" value={responsable} onChange={(e) => setResponsable(e.target.value)}
-              placeholder="Tu nombre" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            />
+            <select
+              value={responsable} onChange={(e) => setResponsable(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+            >
+              <option value="">Elige tu nombre…</option>
+              {[...new Set([...empleados, ...(responsable ? [responsable] : [])])].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -294,6 +329,18 @@ export default function Arqueo() {
             <div className="flex justify-between pt-3 mt-1 border-t border-gray-200 text-sm font-semibold">
               <span>Total contado</span>
               <span className="tabular-nums">{formatoCOP(totalContado)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100 text-sm">
+              <span className="text-gray-600">Base que se deja en caja</span>
+              <input
+                type="number" min="0" value={base}
+                onChange={(e) => { setBase(e.target.value); setBaseTocada(true); }}
+                className="w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums"
+              />
+            </div>
+            <div className="flex justify-between pt-2 text-sm font-semibold text-emerald-800">
+              <span>Para guardar (lo recoge el administrador)</span>
+              <span className="tabular-nums">{formatoCOP(paraGuardar)}</span>
             </div>
           </div>
 
@@ -506,6 +553,355 @@ function HistorialArqueos() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const ADMIN_STORAGE = "arqueo_admin";
+const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const fechaLarga = (f) => {
+  const t = new Date(`${f}T12:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" });
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+
+function BotonEstado({ listo, textoListo, textoPendiente, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`text-xs font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap ${
+        listo ? "bg-emerald-100 text-emerald-800 border-emerald-300" : "bg-amber-50 text-amber-700 border-amber-300"
+      }`}
+      title="Clic para cambiar"
+    >
+      {listo ? `✓ ${textoListo}` : textoPendiente}
+    </button>
+  );
+}
+
+function PanelAdmin({ onAjustesGuardados }) {
+  const [clave, setClave] = useState(() => { try { return sessionStorage.getItem(ADMIN_STORAGE) || ""; } catch { return ""; } });
+  const [claveInput, setClaveInput] = useState("");
+  const [datos, setDatos] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState("");
+  const [verRecogidos, setVerRecogidos] = useState(false);
+  const [verPagados, setVerPagados] = useState(false);
+  const [filtroEmpleado, setFiltroEmpleado] = useState("");
+  const [verAjustes, setVerAjustes] = useState(false);
+
+  const llamar = async (cuerpo, contrasena = clave) => {
+    const resp = await fetch("/api/arqueo-admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contrasena, ...cuerpo }),
+    });
+    const data = await resp.json();
+    if (resp.status === 401) {
+      try { sessionStorage.removeItem(ADMIN_STORAGE); } catch {}
+      setClave("");
+    }
+    if (!resp.ok) throw new Error(data.error || "No se pudo completar.");
+    return data;
+  };
+
+  const cargar = async (contrasena = clave) => {
+    setCargando(true);
+    setError("");
+    try {
+      setDatos(await llamar({ accion: "resumen" }, contrasena));
+      return true;
+    } catch (e) {
+      setError(String(e.message || e));
+      return false;
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (clave) cargar(); }, []);
+
+  const ingresar = async (e) => {
+    e.preventDefault();
+    if (await cargar(claveInput)) {
+      try { sessionStorage.setItem(ADMIN_STORAGE, claveInput); } catch {}
+      setClave(claveInput);
+      setClaveInput("");
+    }
+  };
+
+  const accion = async (cuerpo) => {
+    setError("");
+    try { await llamar(cuerpo); await cargar(); } catch (e) { setError(String(e.message || e)); }
+  };
+
+  if (!clave) {
+    return (
+      <form onSubmit={ingresar} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm flex flex-col gap-3 max-w-sm mx-auto w-full">
+        <h2 className="text-sm font-semibold flex items-center gap-2"><Lock size={15} className="text-emerald-700" />Solo administrador</h2>
+        <input
+          type="password" autoFocus value={claveInput} onChange={(e) => setClaveInput(e.target.value)}
+          placeholder="Contraseña de administrador" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        />
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <button type="submit" disabled={cargando} className="bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold py-2 rounded-lg disabled:opacity-50">
+          {cargando ? "Verificando..." : "Entrar"}
+        </button>
+      </form>
+    );
+  }
+
+  if (!datos) return <p className="text-sm text-gray-400 text-center py-8">{error || "Cargando..."}</p>;
+
+  const { dias, ajustes } = datos;
+  const ordenAsc = (a, b) => a.fecha.localeCompare(b.fecha);
+
+  // --- Recolección ---
+  const porRecoger = dias.filter((d) => !d.recogido).sort(ordenAsc);
+  const totalPorRecoger = porRecoger.reduce((s, d) => s + d.aRecoger, 0);
+  const recogidos = dias.filter((d) => d.recogido).slice(0, 15);
+
+  // --- Turnos ---
+  const nombres = [...new Set(dias.map((d) => d.responsable))].sort();
+  const turnosFiltrados = dias.filter((d) => !filtroEmpleado || d.responsable === filtroEmpleado);
+  const turnosPendientes = turnosFiltrados.filter((d) => !d.turnoPagado).sort(ordenAsc);
+  const turnosPagados = turnosFiltrados.filter((d) => d.turnoPagado).slice(0, 20);
+  const totalTurnosPendiente = turnosPendientes.reduce((s, d) => s + d.valorTurno, 0);
+  const pendientePorEmpleado = nombres
+    .map((n) => {
+      const t = dias.filter((d) => d.responsable === n && !d.turnoPagado);
+      return { nombre: n, turnos: t.length, total: t.reduce((s, d) => s + d.valorTurno, 0) };
+    })
+    .filter((p) => p.turnos > 0);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+
+      {/* ---------------- Dinero por recoger ---------------- */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-sm font-semibold flex items-center gap-2"><Wallet size={16} className="text-emerald-700" />Dinero por recoger</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Lo contado cada día menos la base que se deja en caja. No incluye la base.</p>
+          </div>
+          <button onClick={() => cargar()} disabled={cargando} className="text-xs font-semibold text-emerald-700 flex items-center gap-1 disabled:opacity-50">
+            <RefreshCw size={13} className={cargando ? "animate-spin" : ""} />Actualizar
+          </button>
+        </div>
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 mb-3 flex items-end justify-between gap-3">
+          <div>
+            <div className="text-xs text-gray-500">Debe haber guardado</div>
+            <div className="text-3xl font-bold tabular-nums text-emerald-800">{formatoCOP(totalPorRecoger)}</div>
+            <div className="text-xs text-gray-500">{porRecoger.length} {porRecoger.length === 1 ? "día" : "días"} sin recoger</div>
+          </div>
+          {porRecoger.length > 0 && (
+            <button
+              onClick={() => { if (confirm(`¿Marcar los ${porRecoger.length} días (${formatoCOP(totalPorRecoger)}) como recogidos?`)) accion({ accion: "recogido", ids: porRecoger.flatMap((d) => d.ids), recogido: true }); }}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg"
+            >
+              Ya lo recogí todo
+            </button>
+          )}
+        </div>
+        {porRecoger.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-2">Nada pendiente por recoger.</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {porRecoger.map((d) => (
+              <div key={d.ids[0]} className="flex items-center gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium">{fechaLarga(d.fecha)} <span className="font-normal text-gray-400">· {d.responsable}</span></div>
+                  <div className="text-xs text-gray-400 tabular-nums">Contado {formatoCOP(d.contado)} − base {formatoCOP(d.base)}</div>
+                </div>
+                <span className="tabular-nums font-semibold">{formatoCOP(d.aRecoger)}</span>
+                <BotonEstado listo={false} textoPendiente="Pendiente" onClick={() => accion({ accion: "recogido", ids: d.ids, recogido: true })} />
+              </div>
+            ))}
+          </div>
+        )}
+        {recogidos.length > 0 && (
+          <div className="mt-3">
+            <button onClick={() => setVerRecogidos((v) => !v)} className="text-xs font-semibold text-gray-500 hover:underline">
+              {verRecogidos ? "Ocultar" : "Ver"} días ya recogidos
+            </button>
+            {verRecogidos && (
+              <div className="flex flex-col gap-1.5 mt-2">
+                {recogidos.map((d) => (
+                  <div key={d.ids[0]} className="flex items-center gap-2 text-sm rounded-lg px-3 py-1.5 border border-gray-100">
+                    <span className="flex-1 text-gray-500">{fechaLarga(d.fecha)} <span className="text-gray-400">· {d.responsable}{d.recogidoEn && ` · recogido ${fechaBogota(d.recogidoEn)}`}</span></span>
+                    <span className="tabular-nums text-gray-500">{formatoCOP(d.aRecoger)}</span>
+                    <BotonEstado listo textoListo="Recogido" onClick={() => accion({ accion: "recogido", ids: d.ids, recogido: false })} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---------------- Pago de turnos ---------------- */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-sm font-semibold flex items-center gap-2"><Users size={16} className="text-emerald-700" />Pago de turnos</h2>
+          <select value={filtroEmpleado} onChange={(e) => setFiltroEmpleado(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1 text-sm bg-white">
+            <option value="">Todos</option>
+            {nombres.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+
+        {!filtroEmpleado && pendientePorEmpleado.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {pendientePorEmpleado.map((p) => (
+              <button key={p.nombre} onClick={() => setFiltroEmpleado(p.nombre)} className="text-xs bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 text-left">
+                <b>{p.nombre}</b> · {p.turnos} {p.turnos === 1 ? "turno" : "turnos"} · <b className="tabular-nums">{formatoCOP(p.total)}</b>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {turnosPendientes.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-2">No hay turnos pendientes de pago.</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {turnosPendientes.map((d) => <FilaTurno key={d.ids[0]} d={d} accion={accion} />)}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-200">
+          <div>
+            <div className="text-xs text-gray-500">Total por pagar{filtroEmpleado && ` a ${filtroEmpleado}`}</div>
+            <div className="text-xl font-bold tabular-nums text-amber-700">{formatoCOP(totalTurnosPendiente)}</div>
+          </div>
+          {filtroEmpleado && turnosPendientes.length > 0 && (
+            <button
+              onClick={() => { if (confirm(`¿Marcar los ${turnosPendientes.length} turnos de ${filtroEmpleado} (${formatoCOP(totalTurnosPendiente)}) como pagados?`)) accion({ accion: "turno", ids: turnosPendientes.flatMap((d) => d.ids), pagado: true }); }}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg"
+            >
+              Pagar todo a {filtroEmpleado}
+            </button>
+          )}
+        </div>
+
+        {turnosPagados.length > 0 && (
+          <div className="mt-3">
+            <button onClick={() => setVerPagados((v) => !v)} className="text-xs font-semibold text-gray-500 hover:underline">
+              {verPagados ? "Ocultar" : "Ver"} turnos ya pagados
+            </button>
+            {verPagados && (
+              <div className="flex flex-col gap-1.5 mt-2">
+                {turnosPagados.map((d) => <FilaTurno key={d.ids[0]} d={d} accion={accion} />)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---------------- Ajustes ---------------- */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <button onClick={() => setVerAjustes((v) => !v)} className="text-sm font-semibold flex items-center gap-2 w-full">
+          <Settings size={16} className="text-emerald-700" />Ajustes: empleados y valor del turno
+          <span className="ml-auto text-xs text-gray-400">{verAjustes ? "Ocultar" : "Mostrar"}</span>
+        </button>
+        {verAjustes && (
+          <FormAjustes
+            inicial={ajustes}
+            sugeridos={nombres}
+            onGuardar={async (nuevos) => { await accion({ accion: "guardarAjustes", ajustes: nuevos }); onAjustesGuardados?.(); }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FilaTurno({ d, accion }) {
+  const [valor, setValor] = useState(String(d.valorTurno));
+  useEffect(() => { setValor(String(d.valorTurno)); }, [d.valorTurno]);
+  const guardarValor = () => {
+    if (Number(valor) !== d.valorTurno) accion({ accion: "turno", ids: d.ids, valor: Number(valor) || 0 });
+  };
+  return (
+    <div className={`flex items-center gap-2 text-sm rounded-lg px-3 py-1.5 ${d.turnoPagado ? "border border-gray-100" : "bg-gray-50"}`}>
+      <div className="flex-1 min-w-0">
+        <span className="font-medium">{d.responsable}</span>
+        <span className="text-gray-500"> · {fechaLarga(d.fecha)}</span>
+        {d.turnoPagado && d.turnoPagadoEn && <span className="text-xs text-gray-400"> · pagado {fechaBogota(d.turnoPagadoEn)}</span>}
+      </div>
+      <input
+        type="number" min="0" value={valor} disabled={d.turnoPagado}
+        onChange={(e) => setValor(e.target.value)} onBlur={guardarValor}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+        className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums disabled:bg-transparent disabled:border-transparent"
+      />
+      <BotonEstado listo={d.turnoPagado} textoListo="Pagado" textoPendiente="Pendiente" onClick={() => accion({ accion: "turno", ids: d.ids, pagado: !d.turnoPagado })} />
+    </div>
+  );
+}
+
+function FormAjustes({ inicial, sugeridos, onGuardar }) {
+  const [empleados, setEmpleados] = useState(() => (inicial.empleados.length ? inicial.empleados : sugeridos));
+  const [nuevo, setNuevo] = useState("");
+  const [tarifas, setTarifas] = useState(() => ({ ...inicial.tarifas }));
+  const [guardando, setGuardando] = useState(false);
+  const [listo, setListo] = useState(false);
+
+  const agregar = () => {
+    const n = nuevo.trim();
+    if (n && !empleados.some((e) => e.toLowerCase() === n.toLowerCase())) setEmpleados([...empleados, n]);
+    setNuevo("");
+    setListo(false);
+  };
+
+  const guardar = async () => {
+    setGuardando(true);
+    await onGuardar({ empleados, tarifas });
+    setGuardando(false);
+    setListo(true);
+  };
+
+  return (
+    <div className="flex flex-col gap-4 mt-3">
+      <div>
+        <div className="text-xs font-semibold text-gray-500 mb-1.5">Empleados (lista desplegable del conteo)</div>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {empleados.map((n) => (
+            <span key={n} className="flex items-center gap-1 text-sm bg-gray-100 rounded-full pl-3 pr-1.5 py-0.5">
+              {n}
+              <button onClick={() => { setEmpleados(empleados.filter((e) => e !== n)); setListo(false); }} className="text-gray-400 hover:text-red-600"><X size={13} /></button>
+            </span>
+          ))}
+          {empleados.length === 0 && <span className="text-xs text-gray-400">Sin empleados.</span>}
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={nuevo} onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregar(); }}
+            placeholder="Nombre" className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+          />
+          <button onClick={agregar} className="flex items-center gap-1 border border-emerald-700 text-emerald-700 text-sm font-semibold px-3 py-1.5 rounded-lg"><Plus size={14} />Agregar</button>
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-gray-500 mb-1.5">Valor del turno por día (en cada turno se puede cambiar, ej. festivos)</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[1, 2, 3, 4, 5, 6, 0].map((dia) => (
+            <label key={dia} className="text-xs text-gray-500 flex flex-col gap-0.5">
+              {DIAS_SEMANA[dia]}
+              <input
+                type="number" min="0" value={tarifas[dia] ?? ""}
+                onChange={(e) => { setTarifas({ ...tarifas, [dia]: e.target.value }); setListo(false); }}
+                className="border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums text-gray-800"
+              />
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-gray-400 mt-1.5">Cambiar estos valores no toca los turnos a los que ya les cambiaste el valor a mano.</p>
+      </div>
+
+      <button onClick={guardar} disabled={guardando} className="bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold py-2 rounded-lg disabled:opacity-50">
+        {guardando ? "Guardando..." : listo ? "✓ Guardado" : "Guardar ajustes"}
+      </button>
     </div>
   );
 }

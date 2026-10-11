@@ -79,3 +79,25 @@ export async function obtenerValorTeorico(env) {
     totalTransacciones: s.cash_register_total_entry_encoding || 0,
   };
 }
+
+/**
+ * Saldo de apertura (la base) de varias sesiones de Odoo por nombre — para los
+ * arqueos viejos que se guardaron antes de que se registrara la base.
+ * Devuelve { "POS/2026/10/10/2047": 150000, ... }.
+ */
+export async function obtenerAperturas(env, nombres) {
+  if (!nombres?.length) return {};
+  const ODOO_URL = (env.ODOO_URL || "").trim();
+  const ODOO_DB = (env.ODOO_DB || "").trim();
+  const ODOO_USERNAME = (env.ODOO_USERNAME || "").trim();
+  const ODOO_PASSWORD = (env.ODOO_PASSWORD || "").trim();
+  const uid = await odooCall(ODOO_URL, "common", "authenticate", [ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD, {}]);
+  if (!uid) throw new Error("No se pudo autenticar contra Odoo.");
+  const filas = await odooCall(ODOO_URL, "object", "execute_kw", [
+    ODOO_DB, uid, ODOO_PASSWORD,
+    "pos.session", "search_read",
+    [[["name", "in", nombres]]],
+    { fields: ["name", "cash_register_balance_start"] },
+  ]);
+  return Object.fromEntries(filas.map((f) => [f.name, f.cash_register_balance_start || 0]));
+}

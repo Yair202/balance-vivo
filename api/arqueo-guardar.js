@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     return;
   }
   try {
-    const { fecha, responsable, sesionOdoo, teorico, contado, gastosTotal, gastosIds } = req.body || {};
+    const { fecha, responsable, sesionOdoo, teorico, contado, gastosTotal, gastosIds, base } = req.body || {};
     if (!fecha || !responsable || teorico == null || contado == null) {
       res.status(400).json({ error: "Faltan datos del arqueo." });
       return;
@@ -23,6 +23,7 @@ export default async function handler(req, res) {
       fecha, responsable, sesionOdoo,
       teorico: Number(teorico), contado: Number(contado),
       gastosTotal: Number(gastosTotal) || 0, gastosIds: gastosIds || [],
+      base: base == null || base === "" ? null : Number(base),
     });
     res.status(200).json(arqueo);
   } catch (err) {
