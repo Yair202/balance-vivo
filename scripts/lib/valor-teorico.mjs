@@ -48,10 +48,13 @@ export async function obtenerValorTeorico(env) {
   const sesiones = await odooCall(ODOO_URL, "object", "execute_kw", [
     ODOO_DB, uid, ODOO_PASSWORD,
     "pos.session", "search_read",
-    [[["state", "=", "opened"]]],
+    // "closing_control" = le dieron "Cerrar" en el POS pero aún no validaron ni
+    // contabilizaron el cierre. La sesión sigue pendiente y su teórico vale, así
+    // que también se toma (si no, la herramienta diría "no hay caja abierta").
+    [[["state", "in", ["opened", "closing_control"]]]],
     {
       fields: [
-        "name", "user_id", "config_id", "start_at",
+        "name", "state", "user_id", "config_id", "start_at",
         "cash_register_balance_start", "cash_register_balance_end", "cash_register_total_entry_encoding",
       ],
       order: "id desc",
@@ -67,6 +70,7 @@ export async function obtenerValorTeorico(env) {
   return {
     hayAbierta: true,
     sesion: s.name,
+    enControlDeCierre: s.state === "closing_control",
     cajero: s.user_id ? s.user_id[1] : null,
     puntoDeVenta: s.config_id ? s.config_id[1] : null,
     inicioSesion: s.start_at,

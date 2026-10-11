@@ -251,6 +251,11 @@ export default function Arqueo() {
               <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">No hay ninguna caja abierta en el sistema ahora mismo.</p>
             ) : (
               <>
+                {sesion.enControlDeCierre && (
+                  <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
+                    La caja ya se cerró en el punto de venta pero falta validar el cierre en Odoo. El valor sigue siendo el correcto.
+                  </p>
+                )}
                 <div className="text-3xl font-bold tabular-nums text-emerald-800">{formatoCOP(sesion.teorico)}</div>
                 <p className="text-xs text-gray-400 mt-1">
                   Sesión {sesion.sesion} · {sesion.cajero} · Apertura: {formatoCOP(sesion.saldoApertura)} + Ventas en efectivo: {formatoCOP(sesion.totalTransacciones)}
