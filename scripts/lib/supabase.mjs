@@ -123,7 +123,12 @@ export async function guardarAjustes(env, valor) {
 // desplegable mientras el administrador no haya configurado la suya.
 export async function responsablesUsados(env) {
   const filas = await supaFetch(env, "arqueos?select=responsable&order=creado_en.desc&limit=300");
-  return [...new Set(filas.map((f) => (f.responsable || "").trim()).filter(Boolean))];
+  const nombres = new Map();
+  for (const f of filas) {
+    const n = (f.responsable || "").trim();
+    if (n && !nombres.has(n.toLowerCase())) nombres.set(n.toLowerCase(), n.charAt(0).toUpperCase() + n.slice(1));
+  }
+  return [...nombres.values()];
 }
 
 export async function listarArqueosAdmin(env, limite = 400) {

@@ -46,6 +46,16 @@ async function resumen(env) {
   let aperturas = {};
   try { aperturas = await obtenerAperturas(env, sinBase); } catch { /* si Odoo falla, base 0 */ }
 
+  // Antes el nombre se escribía a mano ("sebas", "Sebas "...): se unifica sin
+  // importar mayúsculas, prefiriendo como aparece en la lista de empleados.
+  const canonico = new Map(ajustes.empleados.map((n) => [n.toLowerCase(), n]));
+  const nombreDe = (n) => {
+    const limpio = (n || "").trim();
+    const clave = limpio.toLowerCase();
+    if (!canonico.has(clave)) canonico.set(clave, limpio.charAt(0).toUpperCase() + limpio.slice(1));
+    return canonico.get(clave);
+  };
+
   return {
     ajustes,
     dias: dias.map((d) => {
@@ -55,7 +65,7 @@ async function resumen(env) {
       return {
         ids: d.ids,
         fecha,
-        responsable: d.responsable,
+        responsable: nombreDe(d.responsable),
         sesion: d.sesion_odoo,
         contado: Number(d.contado),
         base,
