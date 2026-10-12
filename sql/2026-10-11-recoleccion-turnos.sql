@@ -14,3 +14,8 @@ create table if not exists ajustes (
   actualizado_en timestamptz default now()
 );
 alter table ajustes enable row level security;  -- solo la llave secreta (servidor) la lee/escribe
+
+-- 2026-10-11 (2): comisión y adicional del turno
+alter table arqueos add column if not exists adicional_turno numeric not null default 0;
+alter table arqueos add column if not exists comision_turno numeric;  -- se fija al pagar el turno
+grant select, insert, update, delete on table public.ajustes to service_role;

@@ -101,6 +101,7 @@ export async function ajustarArqueo(env, id, { notaAdmin, resuelto }) {
 
 const AJUSTES_DEFAULT = {
   empleados: [],
+  pctComision: 0, // % sobre la venta total del día (ventas brutas del balance)
   // Valor del turno por día de la semana (0 = domingo ... 6 = sábado).
   tarifas: { 0: 60000, 1: 55000, 2: 55000, 3: 55000, 4: 55000, 5: 55000, 6: 55000 },
 };
@@ -142,25 +143,29 @@ export async function marcarRecogido(env, ids, recogido) {
   });
 }
 
-export async function marcarTurno(env, ids, { pagado, valor }) {
+export async function marcarTurno(env, ids, { pagado, valor, adicional }) {
   const cambios = {};
   if (pagado !== undefined) {
     cambios.turno_pagado = pagado;
     cambios.turno_pagado_en = pagado ? new Date().toISOString() : null;
+    // Si se des-marca, la comisión vuelve a calcularse con el % y la venta actuales.
+    if (!pagado) cambios.comision_turno = null;
   }
   if (valor !== undefined) cambios.valor_turno = valor;
+  if (adicional !== undefined) cambios.adicional_turno = adicional;
   await supaFetch(env, `arqueos?id=in.(${ids.join(",")})`, { method: "PATCH", body: JSON.stringify(cambios) });
 }
 
 // Al pagar un turno se deja fijo su valor: si después cambian la tarifa del
 // día, los turnos ya pagados no deben cambiar.
-export async function congelarValorTurno(env, ids, tarifas, fechaDe) {
-  const filas = await supaFetch(env, `arqueos?id=in.(${ids.join(",")})&valor_turno=is.null&select=id,fecha,creado_en`);
+// `calcular(fila)` devuelve { valor, comision } tal como se ven hoy.
+export async function congelarTurno(env, ids, calcular) {
+  const filas = await supaFetch(env, `arqueos?id=in.(${ids.join(",")})&or=(valor_turno.is.null,comision_turno.is.null)`);
   for (const f of filas) {
-    const dia = new Date(`${fechaDe(f)}T12:00:00`).getDay();
+    const { valor, comision } = calcular(f);
     await supaFetch(env, `arqueos?id=eq.${f.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ valor_turno: Number(tarifas[dia]) || 0 }),
+      body: JSON.stringify({ valor_turno: f.valor_turno ?? valor, comision_turno: f.comision_turno ?? comision }),
     });
   }
 }

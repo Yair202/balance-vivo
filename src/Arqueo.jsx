@@ -668,11 +668,11 @@ function PanelAdmin({ onAjustesGuardados }) {
   const turnosFiltrados = turnos.filter((d) => !filtroEmpleado || d.responsable === filtroEmpleado);
   const turnosPendientes = turnosFiltrados.filter((d) => !d.turnoPagado).sort(ordenAsc);
   const turnosPagados = turnosFiltrados.filter((d) => d.turnoPagado).slice(0, 20);
-  const totalTurnosPendiente = turnosPendientes.reduce((s, d) => s + d.valorTurno, 0);
+  const totalTurnosPendiente = turnosPendientes.reduce((s, d) => s + d.totalTurno, 0);
   const pendientePorEmpleado = nombres
     .map((n) => {
       const t = turnos.filter((d) => d.responsable === n && !d.turnoPagado);
-      return { nombre: n, turnos: t.length, total: t.reduce((s, d) => s + d.valorTurno, 0) };
+      return { nombre: n, turnos: t.length, total: t.reduce((s, d) => s + d.totalTurno, 0) };
     })
     .filter((p) => p.turnos > 0);
 
@@ -817,26 +817,52 @@ function PanelAdmin({ onAjustesGuardados }) {
   );
 }
 
-function FilaTurno({ d, accion }) {
-  const [valor, setValor] = useState(String(d.valorTurno));
-  useEffect(() => { setValor(String(d.valorTurno)); }, [d.valorTurno]);
-  const guardarValor = () => {
-    if (Number(valor) !== d.valorTurno) accion({ accion: "turno", ids: d.ids, valor: Number(valor) || 0 });
-  };
+// Campo de valor que se guarda al salir de él (o con Enter).
+function CampoValor({ etiqueta, valorActual, disabled, onGuardar }) {
+  const [valor, setValor] = useState(String(valorActual));
+  useEffect(() => { setValor(String(valorActual)); }, [valorActual]);
   return (
-    <div className={`flex items-center gap-2 text-sm rounded-lg px-3 py-1.5 ${d.turnoPagado ? "border border-gray-100" : "bg-gray-50"}`}>
-      <div className="flex-1 min-w-0">
-        <span className="font-medium">{d.responsable}</span>
-        <span className="text-gray-500"> · {fechaLarga(d.fecha)}</span>
-        {d.turnoPagado && d.turnoPagadoEn && <span className="text-xs text-gray-400"> · pagado {fechaBogota(d.turnoPagadoEn)}</span>}
-      </div>
+    <label className="flex flex-col text-xs text-gray-400">
+      {etiqueta}
       <input
-        type="number" min="0" value={valor} disabled={d.turnoPagado}
-        onChange={(e) => setValor(e.target.value)} onBlur={guardarValor}
+        type="number" min="0" value={valor} disabled={disabled}
+        onChange={(e) => setValor(e.target.value)}
+        onBlur={() => { if ((Number(valor) || 0) !== valorActual) onGuardar(Number(valor) || 0); }}
         onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-        className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums disabled:bg-transparent disabled:border-transparent"
+        className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums text-gray-800 bg-white disabled:bg-transparent disabled:border-transparent"
       />
-      <BotonEstado listo={d.turnoPagado} textoListo="Pagado" textoPendiente="Pendiente" onClick={() => accion({ accion: "turno", ids: d.ids, pagado: !d.turnoPagado })} />
+    </label>
+  );
+}
+
+function FilaTurno({ d, accion }) {
+  return (
+    <div className={`text-sm rounded-lg px-3 py-2 ${d.turnoPagado ? "border border-gray-100" : "bg-gray-50"}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex-1 min-w-0">
+          <span className="font-medium">{d.responsable}</span>
+          <span className="text-gray-500"> · {fechaLarga(d.fecha)}</span>
+          {d.turnoPagado && d.turnoPagadoEn && <span className="text-xs text-gray-400"> · pagado {fechaBogota(d.turnoPagadoEn)}</span>}
+        </div>
+        <BotonEstado listo={d.turnoPagado} textoListo="Pagado" textoPendiente="Pendiente" onClick={() => accion({ accion: "turno", ids: d.ids, pagado: !d.turnoPagado })} />
+      </div>
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5">
+        <CampoValor etiqueta="Turno" valorActual={d.valorTurno} disabled={d.turnoPagado} onGuardar={(v) => accion({ accion: "turno", ids: d.ids, valor: v })} />
+        <span className="text-gray-300 pb-1.5">+</span>
+        <div className="flex flex-col text-xs text-gray-400">
+          Comisión
+          <span className="text-sm text-gray-800 tabular-nums py-1" title={`Venta total del día: ${formatoCOP(d.ventaDia)}`}>
+            {formatoCOP(d.comision)} <span className="text-xs text-gray-400">de {formatoCOP(d.ventaDia)}</span>
+          </span>
+        </div>
+        <span className="text-gray-300 pb-1.5">+</span>
+        <CampoValor etiqueta="Adicional" valorActual={d.adicional} disabled={d.turnoPagado} onGuardar={(v) => accion({ accion: "turno", ids: d.ids, adicional: v })} />
+        <span className="text-gray-300 pb-1.5">=</span>
+        <div className="flex flex-col text-xs text-gray-400">
+          Total
+          <span className="text-sm font-bold text-gray-900 tabular-nums py-1">{formatoCOP(d.totalTurno)}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -845,6 +871,7 @@ function FormAjustes({ inicial, sugeridos, onGuardar }) {
   const [empleados, setEmpleados] = useState(() => (inicial.empleados.length ? inicial.empleados : sugeridos));
   const [nuevo, setNuevo] = useState("");
   const [tarifas, setTarifas] = useState(() => ({ ...inicial.tarifas }));
+  const [pctComision, setPctComision] = useState(() => String(inicial.pctComision ?? 0));
   const [guardando, setGuardando] = useState(false);
   const [listo, setListo] = useState(false);
 
@@ -857,7 +884,7 @@ function FormAjustes({ inicial, sugeridos, onGuardar }) {
 
   const guardar = async () => {
     setGuardando(true);
-    await onGuardar({ empleados, tarifas });
+    await onGuardar({ empleados, tarifas, pctComision: Number(pctComision) || 0 });
     setGuardando(false);
     setListo(true);
   };
@@ -899,6 +926,19 @@ function FormAjustes({ inicial, sugeridos, onGuardar }) {
           ))}
         </div>
         <p className="text-xs text-gray-400 mt-1.5">Cambiar estos valores no toca los turnos a los que ya les cambiaste el valor a mano.</p>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-gray-500 mb-1.5">Comisión del turno</div>
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          <input
+            type="number" min="0" step="0.1" value={pctComision}
+            onChange={(e) => { setPctComision(e.target.value); setListo(false); }}
+            className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums text-gray-800"
+          />
+          % de la venta total del día (ventas brutas del balance)
+        </label>
+        <p className="text-xs text-gray-400 mt-1.5">Aplica a los turnos pendientes; los ya pagados conservan la comisión con la que se pagaron. Con 0 no hay comisión.</p>
       </div>
 
       <button onClick={guardar} disabled={guardando} className="bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold py-2 rounded-lg disabled:opacity-50">

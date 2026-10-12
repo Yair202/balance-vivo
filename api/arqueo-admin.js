@@ -18,7 +18,7 @@
  */
 import {
   obtenerAjustes, guardarAjustes, responsablesUsados,
-  listarArqueosAdmin, marcarRecogido, marcarTurno, congelarValorTurno,
+  listarArqueosAdmin, marcarRecogido, marcarTurno, congelarTurno,
 } from "../scripts/lib/supabase.mjs";
 import { obtenerAperturas } from "../scripts/lib/valor-teorico.mjs";
 
@@ -36,8 +36,36 @@ function agruparPorSesion(arqueos) {
   return [...grupos.values()];
 }
 
-async function resumen(env) {
-  const [ajustes, arqueos] = await Promise.all([obtenerAjustes(env), listarArqueosAdmin(env)]);
+const fechaDe = (f) => (f.creado_en ? fechaBogota(f.creado_en) : f.fecha);
+
+// Venta total por día (la misma "Ventas brutas" del balance), del JSON que la
+// sincronización con Odoo deja publicado junto a la app.
+async function ventasPorDia(origen) {
+  try {
+    const resp = await fetch(`${origen}/datos-ventas.json`, { cache: "no-store" });
+    const datos = await resp.json();
+    return Object.fromEntries(datos.map((d) => [d.fecha, Number(d.ventasBrutas) || 0]));
+  } catch {
+    return {};
+  }
+}
+
+// Turno + comisión tal como se ven hoy (antes de pagar). Al pagar se congelan.
+function calcularTurno(f, ajustes, ventas) {
+  const fecha = fechaDe(f);
+  const diaSemana = new Date(`${fecha}T12:00:00`).getDay();
+  const venta = ventas[fecha] ?? 0;
+  return {
+    venta,
+    valor: f.valor_turno != null ? Number(f.valor_turno) : Number(ajustes.tarifas[diaSemana]) || 0,
+    comision: f.comision_turno != null ? Number(f.comision_turno) : Math.round((venta * (Number(ajustes.pctComision) || 0)) / 100),
+  };
+}
+
+const origenDe = (req) => `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
+
+async function resumen(env, origen) {
+  const [ajustes, arqueos, ventas] = await Promise.all([obtenerAjustes(env), listarArqueosAdmin(env), ventasPorDia(origen)]);
   const dias = agruparPorSesion(arqueos);
 
   // Arqueos viejos (de antes de registrar la base): la base es el saldo de
@@ -59,9 +87,10 @@ async function resumen(env) {
   return {
     ajustes,
     dias: dias.map((d) => {
-      const fecha = d.creado_en ? fechaBogota(d.creado_en) : d.fecha;
+      const fecha = fechaDe(d);
       const base = d.base != null ? Number(d.base) : aperturas[d.sesion_odoo] ?? 0;
-      const diaSemana = new Date(`${fecha}T12:00:00`).getDay();
+      const turno = calcularTurno(d, ajustes, ventas);
+      const adicional = Number(d.adicional_turno) || 0;
       return {
         ids: d.ids,
         fecha,
@@ -72,7 +101,11 @@ async function resumen(env) {
         aRecoger: Math.max(0, Number(d.contado) - base),
         recogido: !!d.recogido,
         recogidoEn: d.recogido_en,
-        valorTurno: d.valor_turno != null ? Number(d.valor_turno) : Number(ajustes.tarifas[diaSemana]) || 0,
+        valorTurno: turno.valor,
+        ventaDia: turno.venta,
+        comision: turno.comision,
+        adicional,
+        totalTurno: turno.valor + turno.comision + adicional,
         turnoPagado: !!d.turno_pagado,
         turnoPagadoEn: d.turno_pagado_en,
       };
@@ -90,12 +123,12 @@ export default async function handler(req, res) {
     }
     if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
 
-    const { contrasena, accion, ids, recogido, pagado, valor, ajustes } = req.body || {};
+    const { contrasena, accion, ids, recogido, pagado, valor, adicional, ajustes } = req.body || {};
     if (contrasena !== env.VITE_APP_PASSWORD) {
       return res.status(401).json({ error: "Contraseña de administrador incorrecta." });
     }
 
-    if (accion === "resumen") return res.status(200).json(await resumen(env));
+    if (accion === "resumen") return res.status(200).json(await resumen(env, origenDe(req)));
 
     if (accion === "recogido") {
       if (!ids?.length) return res.status(400).json({ error: "Faltan los días." });
@@ -108,10 +141,11 @@ export default async function handler(req, res) {
       await marcarTurno(env, ids, {
         pagado: pagado === undefined ? undefined : !!pagado,
         valor: valor === undefined ? undefined : Number(valor) || 0,
+        adicional: adicional === undefined ? undefined : Number(adicional) || 0,
       });
       if (pagado) {
-        const { tarifas } = await obtenerAjustes(env);
-        await congelarValorTurno(env, ids, tarifas, (f) => (f.creado_en ? fechaBogota(f.creado_en) : f.fecha));
+        const [ajustesActuales, ventas] = await Promise.all([obtenerAjustes(env), ventasPorDia(origenDe(req))]);
+        await congelarTurno(env, ids, (f) => calcularTurno(f, ajustesActuales, ventas));
       }
       return res.status(200).json({ ok: true });
     }
@@ -119,7 +153,8 @@ export default async function handler(req, res) {
     if (accion === "guardarAjustes") {
       const empleados = [...new Set((ajustes?.empleados || []).map((n) => String(n).trim()).filter(Boolean))];
       const tarifas = Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [d, Number(ajustes?.tarifas?.[d]) || 0]));
-      await guardarAjustes(env, { empleados, tarifas });
+      const pctComision = Math.max(0, Number(ajustes?.pctComision) || 0);
+      await guardarAjustes(env, { empleados, tarifas, pctComision });
       return res.status(200).json({ ok: true });
     }
 
