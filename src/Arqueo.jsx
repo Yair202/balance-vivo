@@ -662,14 +662,16 @@ function PanelAdmin({ onAjustesGuardados }) {
   const recogidos = dias.filter((d) => d.recogido).slice(0, 15);
 
   // --- Turnos ---
-  const nombres = [...new Set(dias.map((d) => d.responsable))].sort();
-  const turnosFiltrados = dias.filter((d) => !filtroEmpleado || d.responsable === filtroEmpleado);
+  // El administrador no cobra turno: sus cierres cuentan para recoger, no aquí.
+  const turnos = dias.filter((d) => (d.responsable || "").trim().toLowerCase() !== "administrador");
+  const nombres = [...new Set(turnos.map((d) => d.responsable))].sort();
+  const turnosFiltrados = turnos.filter((d) => !filtroEmpleado || d.responsable === filtroEmpleado);
   const turnosPendientes = turnosFiltrados.filter((d) => !d.turnoPagado).sort(ordenAsc);
   const turnosPagados = turnosFiltrados.filter((d) => d.turnoPagado).slice(0, 20);
   const totalTurnosPendiente = turnosPendientes.reduce((s, d) => s + d.valorTurno, 0);
   const pendientePorEmpleado = nombres
     .map((n) => {
-      const t = dias.filter((d) => d.responsable === n && !d.turnoPagado);
+      const t = turnos.filter((d) => d.responsable === n && !d.turnoPagado);
       return { nombre: n, turnos: t.length, total: t.reduce((s, d) => s + d.valorTurno, 0) };
     })
     .filter((p) => p.turnos > 0);
