@@ -79,13 +79,17 @@ export async function obtenerDatosOdoo(env, { log = () => {} } = {}) {
   const ordenes = await buscarTodo(
     "pos.order",
     [["date_order", ">=", desdeStr], ["date_order", "<", hastaStr], ["state", "in", ["paid", "done", "invoiced"]]],
-    ["id", "name", "date_order", "amount_total"]
+    ["id", "name", "date_order", "amount_total", "picking_id"]
   );
   log(`${ordenes.length} órdenes encontradas.`);
   const idsOrdenes = ordenes.map((o) => o.id);
   const fechaPorOrden = new Map(ordenes.map((o) => [o.id, fechaLocalISO(o.date_order, TZ_OFFSET_HORAS)]));
   const horaPorOrden = new Map(ordenes.map((o) => [o.id, horaLocalHHMM(o.date_order, TZ_OFFSET_HORAS)]));
   const numeroPorOrden = new Map(ordenes.map((o) => [o.id, o.name]));
+  // Odoo le pone al picking de bodega de cada venta un nombre propio (ej.
+  // "POS19980") distinto al número de la orden (ej. "POS0000010959"). Con esto
+  // el kardex muestra el número de la orden, que es el que ve el cliente.
+  const numeroOrdenPorPicking = new Map(ordenes.filter((o) => o.picking_id).map((o) => [o.picking_id[0], o.name]));
 
   const camposPosOrder = await executeKw("pos.order", "fields_get", [], { attributes: ["type"] });
   const esquemaNuevo = "payment_ids" in camposPosOrder;
@@ -198,7 +202,7 @@ export async function obtenerDatosOdoo(env, { log = () => {} } = {}) {
   const movimientosRaw = await buscarTodo(
     "stock.move",
     [["date", ">=", desdeStr], ["date", "<", hastaStr], ["state", "=", "done"]],
-    ["date", "product_id", "product_qty", "location_id", "location_dest_id", "reference"]
+    ["date", "product_id", "product_qty", "location_id", "location_dest_id", "reference", "picking_id"]
   );
   // "tipo" (entrada/salida/otro) se deja EXACTA como estaba — de eso dependen
   // los gráficos de compras/ventas reales (Reabastecimientos, Más vendidos).
@@ -239,7 +243,7 @@ export async function obtenerDatosOdoo(env, { log = () => {} } = {}) {
 
       return {
         fecha: fechaLocalISO(m.date, TZ_OFFSET_HORAS), productoId: m.product_id[0], cantidad: m.product_qty, tipo,
-        detalle, efecto, referencia: m.reference || "",
+        detalle, efecto, referencia: numeroOrdenPorPicking.get(m.picking_id?.[0]) || m.reference || "",
       };
     });
   log(`Listo: ${productosInventario.length} productos, ${movimientos.length} movimientos.`);
