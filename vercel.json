@@ -1,5 +1,7 @@
 {
   "rewrites": [
-    { "source": "/arqueo", "destination": "/index.html" }
+    { "source": "/arqueo", "destination": "/index.html" },
+    { "source": "/rifa", "destination": "/index.html" },
+    { "source": "/rifa/admin", "destination": "/index.html" }
   ]
 }

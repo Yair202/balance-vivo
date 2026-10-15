@@ -9,6 +9,8 @@
  * ---------------------------------------------------------------------------
  */
 
+import { randomInt } from "node:crypto";
+
 function headers(env) {
   const key = env.SUPABASE_SERVICE_KEY;
   return {
@@ -25,8 +27,9 @@ async function supaFetch(env, path, options = {}) {
     const texto = await resp.text();
     throw new Error(`Supabase ${resp.status}: ${texto}`);
   }
-  if (resp.status === 204) return null;
-  return resp.json();
+  // Sin "Prefer: return=representation" Supabase responde sin cuerpo.
+  const texto = await resp.text();
+  return texto ? JSON.parse(texto) : null;
 }
 
 export async function listarGastosDelDia(env, fecha) {
@@ -168,4 +171,88 @@ export async function congelarTurno(env, ids, calcular) {
       body: JSON.stringify({ valor_turno: f.valor_turno ?? valor, comision_turno: f.comision_turno ?? comision }),
     });
   }
+}
+
+// --- Rifa (/rifa) -----------------------------------------------------------
+
+const AJUSTES_RIFA_DEFAULT = {
+  valorBoleta: 130000,   // 1 número por cada $130.000 de una misma factura
+  totalNumeros: 1000,    // números del 000 al 999
+  inicio: "2026-10-15",  // solo cuentan compras desde esta fecha (hora Colombia)
+  fin: "",               // vacío = sin fecha de cierre
+  fechaSorteo: "",
+  premio: "",
+};
+
+export async function obtenerAjustesRifa(env) {
+  const filas = await supaFetch(env, "ajustes?clave=eq.rifa");
+  return { ...AJUSTES_RIFA_DEFAULT, ...(filas[0]?.valor || {}) };
+}
+
+export async function guardarAjustesRifa(env, valor) {
+  await supaFetch(env, "ajustes?on_conflict=clave", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ clave: "rifa", valor, actualizado_en: new Date().toISOString() }),
+  });
+}
+
+export async function registroRifaPorFactura(env, factura) {
+  const [fila] = await supaFetch(env, `rifa_registros?factura=eq.${encodeURIComponent(factura)}&select=*,rifa_boletas(numero)`);
+  return fila || null;
+}
+
+// Crea el registro. Si la misma factura se registró al mismo tiempo desde otro
+// celular, la base lo rechaza (factura es única) y se devuelve null.
+export async function crearRegistroRifa(env, datos) {
+  try {
+    const [fila] = await supaFetch(env, "rifa_registros", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(datos),
+    });
+    return fila;
+  } catch (e) {
+    if (String(e.message).includes("Supabase 409")) return null;
+    throw e;
+  }
+}
+
+export async function borrarRegistroRifa(env, id) {
+  await supaFetch(env, `rifa_registros?id=eq.${id}`, { method: "DELETE" });
+}
+
+export async function numerosRifaOcupados(env) {
+  const filas = await supaFetch(env, "rifa_boletas?select=numero");
+  return new Set(filas.map((f) => f.numero));
+}
+
+// Asigna `cantidad` números al azar entre los libres. El número es la llave de
+// la tabla, así que si dos clientes se registran a la vez y les sale el mismo,
+// la base rechaza el segundo y se vuelve a sortear (nunca hay repetidos).
+export async function asignarNumerosRifa(env, registroId, cantidad, totalNumeros) {
+  const asignados = [];
+  for (let intento = 0; intento < 10 && asignados.length < cantidad; intento++) {
+    const ocupados = await numerosRifaOcupados(env);
+    const libres = [];
+    for (let n = 0; n < totalNumeros; n++) if (!ocupados.has(n)) libres.push(n);
+    if (!libres.length) break;
+    for (let i = libres.length - 1; i > 0; i--) { // mezcla (Fisher-Yates)
+      const j = randomInt(i + 1);
+      [libres[i], libres[j]] = [libres[j], libres[i]];
+    }
+    for (const numero of libres.slice(0, cantidad - asignados.length)) {
+      try {
+        await supaFetch(env, "rifa_boletas", { method: "POST", body: JSON.stringify({ numero, registro_id: registroId }) });
+        asignados.push(numero);
+      } catch (e) {
+        if (!String(e.message).includes("Supabase 409")) throw e;
+      }
+    }
+  }
+  return asignados.sort((a, b) => a - b);
+}
+
+export async function listarRegistrosRifa(env) {
+  return supaFetch(env, "rifa_registros?select=*,rifa_boletas(numero)&order=creado_en.desc&limit=5000");
 }

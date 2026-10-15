@@ -101,3 +101,25 @@ export async function obtenerAperturas(env, nombres) {
   ]);
   return Object.fromEntries(filas.map((f) => [f.name, f.cash_register_balance_start || 0]));
 }
+
+/**
+ * Una venta del POS por su número ("Ref. venta", ej. POS0000010959) — la usa
+ * la rifa para saber el valor real de la compra. null si no existe o no está
+ * pagada.
+ */
+export async function obtenerOrdenPOS(env, nombre) {
+  const ODOO_URL = (env.ODOO_URL || "").trim();
+  const ODOO_DB = (env.ODOO_DB || "").trim();
+  const ODOO_USERNAME = (env.ODOO_USERNAME || "").trim();
+  const ODOO_PASSWORD = (env.ODOO_PASSWORD || "").trim();
+  const uid = await odooCall(ODOO_URL, "common", "authenticate", [ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD, {}]);
+  if (!uid) throw new Error("No se pudo autenticar contra Odoo.");
+  const [orden] = await odooCall(ODOO_URL, "object", "execute_kw", [
+    ODOO_DB, uid, ODOO_PASSWORD,
+    "pos.order", "search_read",
+    [[["name", "=", nombre], ["state", "in", ["paid", "done", "invoiced"]]]],
+    { fields: ["name", "date_order", "amount_total"], limit: 1 },
+  ]);
+  if (!orden) return null;
+  return { numero: orden.name, fechaUTC: orden.date_order, monto: orden.amount_total || 0 };
+}
