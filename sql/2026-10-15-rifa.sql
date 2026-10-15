@@ -8,8 +8,7 @@ create table if not exists rifa_registros (
   fecha_compra date,
   nombre text not null,
   celular text not null,
-  nino_nombre text,
-  nino_cumple date,
+  cumple date,                               -- cumpleaños de la clienta (opcional)
   autoriza_marketing boolean not null default false,  -- casilla de promociones por WhatsApp
   autoriza_marketing_en timestamptz,                  -- prueba de cuándo autorizó
   acepta_reglamento boolean not null default true,
@@ -21,6 +20,9 @@ create table if not exists rifa_boletas (
   registro_id bigint not null references rifa_registros(id) on delete cascade,
   creado_en timestamptz not null default now()
 );
+-- Si ya corriste la versión anterior de este archivo (con datos del niño/a):
+alter table rifa_registros add column if not exists cumple date;
+
 create index if not exists rifa_boletas_registro on rifa_boletas(registro_id);
 
 alter table rifa_registros enable row level security;  -- solo la llave secreta (servidor)

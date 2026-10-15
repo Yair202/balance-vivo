@@ -12,8 +12,8 @@
  *
  *   GET  -> datos públicos de la rifa (valor por número, fechas, premio)
  *   POST { accion: "verificar", factura, total }
- *   POST { accion: "registrar", factura, total, nombre, celular, ninoNombre,
- *          ninoCumple, autorizaMarketing, aceptaReglamento }
+ *   POST { accion: "registrar", factura, total, nombre, celular, cumple,
+ *          autorizaMarketing, aceptaReglamento }
  *   POST { accion: "admin" | "guardarAjustes" | "borrar", contrasena, ... }
  * ---------------------------------------------------------------------------
  */
@@ -70,13 +70,13 @@ async function publico(env, req, res) {
   }
 
   if (accion === "registrar") {
-    const { nombre, celular, ninoNombre, ninoCumple, autorizaMarketing, aceptaReglamento } = req.body;
+    const { nombre, celular, cumple, autorizaMarketing, aceptaReglamento } = req.body;
     const nombreLimpio = String(nombre || "").trim().slice(0, 120);
     const celularLimpio = String(celular || "").replace(/\D/g, "");
     if (nombreLimpio.length < 3) throw new ErrorCliente("Escribe tu nombre completo.");
     if (!/^3\d{9}$/.test(celularLimpio)) throw new ErrorCliente("Escribe un celular válido de 10 dígitos (ej. 3001234567).");
     if (!aceptaReglamento) throw new ErrorCliente("Debes aceptar el reglamento de la rifa para participar.");
-    const cumple = /^\d{4}-\d{2}-\d{2}$/.test(ninoCumple || "") ? ninoCumple : null;
+    const cumpleValido = /^\d{4}-\d{2}-\d{2}$/.test(cumple || "") ? cumple : null;
 
     const orden = await validarFactura(env, ajustes, factura, total);
     if (orden.cantidad < 1) throw new ErrorCliente(`Por cada compra de ${formato(ajustes.valorBoleta)} recibes un número; esta factura no alcanza.`);
@@ -87,8 +87,7 @@ async function publico(env, req, res) {
       fecha_compra: orden.fecha,
       nombre: nombreLimpio,
       celular: celularLimpio,
-      nino_nombre: String(ninoNombre || "").trim().slice(0, 80) || null,
-      nino_cumple: cumple,
+      cumple: cumpleValido,
       autoriza_marketing: !!autorizaMarketing,
       autoriza_marketing_en: autorizaMarketing ? new Date().toISOString() : null,
       acepta_reglamento: true,

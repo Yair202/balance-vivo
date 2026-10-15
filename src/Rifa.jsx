@@ -70,7 +70,7 @@ function PoliticaDatos() {
   return (
     <div className="text-xs text-gray-600 flex flex-col gap-1.5">
       <p>{NOMBRE_TIENDA} es responsable de los datos que registras aquí (Ley 1581 de 2012).</p>
-      <p><b>Para qué los usamos:</b> tu nombre, celular y número de factura se usan para la rifa (asignarte números y contactarte si ganas). Solo si marcas la casilla de promociones, también usaremos tu celular y los datos de tu niño o niña para enviarte por WhatsApp novedades, descuentos y saludos de cumpleaños.</p>
+      <p><b>Para qué los usamos:</b> tu nombre, celular y número de factura se usan para la rifa (asignarte números y contactarte si ganas). Solo si marcas la casilla de promociones, también usaremos tu celular y tu fecha de cumpleaños para enviarte por WhatsApp novedades, descuentos y saludos de cumpleaños.</p>
       <p><b>Tus derechos:</b> puedes conocer, actualizar o pedir que borremos tus datos, y dejar de recibir promociones cuando quieras, pidiéndolo en la tienda o respondiendo cualquiera de nuestros mensajes con la palabra BAJA.</p>
       <p>No vendemos ni compartimos tus datos con nadie.</p>
     </div>
@@ -83,7 +83,7 @@ function RifaCliente() {
   const [factura, setFactura] = useState("");
   const [total, setTotal] = useState("");
   const [compra, setCompra] = useState(null);
-  const [datos, setDatos] = useState({ nombre: "", celular: "", ninoNombre: "", ninoCumple: "" });
+  const [datos, setDatos] = useState({ nombre: "", celular: "", cumple: "" });
   const [aceptaReglamento, setAceptaReglamento] = useState(false);
   const [autorizaMarketing, setAutorizaMarketing] = useState(false);
   const [resultado, setResultado] = useState(null);
@@ -200,15 +200,9 @@ function RifaCliente() {
               />
               <p className="text-xs text-gray-400 mt-1">A este número te contactamos si ganas.</p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-semibold text-gray-700 block mb-1.5">Nombre de tu niño o niña <span className="font-normal text-gray-400">(opcional)</span></label>
-                <input value={datos.ninoNombre} onChange={(e) => setDatos({ ...datos, ninoNombre: e.target.value })} className={inputCls} />
-              </div>
-              <div>
-                <label className="text-sm font-semibold text-gray-700 block mb-1.5">Su cumpleaños <span className="font-normal text-gray-400">(opcional)</span></label>
-                <input type="date" value={datos.ninoCumple} onChange={(e) => setDatos({ ...datos, ninoCumple: e.target.value })} className={inputCls} />
-              </div>
+            <div>
+              <label className="text-sm font-semibold text-gray-700 block mb-1.5">Tu cumpleaños <span className="font-normal text-gray-400">(opcional)</span></label>
+              <input type="date" value={datos.cumple} onChange={(e) => setDatos({ ...datos, cumple: e.target.value })} className={inputCls} />
             </div>
 
             <label className="flex items-start gap-2.5 text-sm text-gray-700">
@@ -222,7 +216,7 @@ function RifaCliente() {
 
             <label className="flex items-start gap-2.5 text-sm text-gray-700">
               <input type="checkbox" checked={autorizaMarketing} onChange={(e) => setAutorizaMarketing(e.target.checked)} className="mt-0.5 w-5 h-5 accent-pink-600 shrink-0" />
-              <span>Quiero recibir por WhatsApp promociones, novedades y sorpresas de cumpleaños para mi niño o niña. Puedo darme de baja cuando quiera. <span className="text-gray-400">(Opcional)</span></span>
+              <span>Quiero recibir por WhatsApp promociones, novedades y una sorpresa en mi cumpleaños. Puedo darme de baja cuando quiera. <span className="text-gray-400">(Opcional)</span></span>
             </label>
             <details className="-mt-2 ml-7">
               <summary className="text-xs text-pink-700 font-semibold cursor-pointer">Política de tratamiento de datos</summary>
@@ -274,10 +268,10 @@ function RifaCliente() {
 const ADMIN_STORAGE = "rifa_admin";
 
 function descargarCSV(registros) {
-  const columnas = ["Fecha registro", "Nombre", "Celular", "Niño/a", "Cumpleaños niño/a", "Autoriza promociones", "Factura", "Fecha compra", "Valor compra", "Números"];
+  const columnas = ["Fecha registro", "Nombre", "Celular", "Cumpleaños", "Autoriza promociones", "Factura", "Fecha compra", "Valor compra", "Números"];
   const filas = registros.map((r) => [
     new Date(r.creado_en).toLocaleString("es-CO", { timeZone: "America/Bogota" }),
-    r.nombre, r.celular, r.nino_nombre || "", r.nino_cumple || "",
+    r.nombre, r.celular, r.cumple || "",
     r.autoriza_marketing ? "Sí" : "No",
     r.factura, r.fecha_compra || "", Number(r.monto),
     (r.rifa_boletas || []).map((b) => formatoNumero(b.numero)).sort().join(" "),
@@ -481,7 +475,7 @@ function RifaAdmin() {
                 <tr className="text-xs text-gray-400 border-b border-gray-200 text-left">
                   <th className="font-medium py-2 pl-4">Números</th>
                   <th className="font-medium py-2">Cliente</th>
-                  <th className="font-medium py-2">Niño/a</th>
+                  <th className="font-medium py-2">Cumpleaños</th>
                   <th className="font-medium py-2">Factura</th>
                   <th className="font-medium py-2 text-right">Compra</th>
                   <th className="font-medium py-2 text-center">Promos</th>
@@ -503,8 +497,7 @@ function RifaAdmin() {
                       <a href={`https://wa.me/57${r.celular}`} target="_blank" rel="noreferrer" className="text-xs text-emerald-700 hover:underline">{r.celular}</a>
                     </td>
                     <td className="py-2 text-xs text-gray-600">
-                      {r.nino_nombre || "—"}
-                      {r.nino_cumple && <div className="text-gray-400">🎂 {fechaCorta(r.nino_cumple)}</div>}
+                      {r.cumple ? `🎂 ${fechaCorta(r.cumple)}` : "—"}
                     </td>
                     <td className="py-2 text-xs text-gray-600">
                       {r.factura}
