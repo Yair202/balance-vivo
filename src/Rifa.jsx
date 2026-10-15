@@ -12,6 +12,48 @@ import logoCorona from "./assets/logo-corona.jpg";
 const formatoCOP = (v) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(v || 0);
 const formatoNumero = (n) => String(n).padStart(3, "0");
 const fechaCorta = (f) => f ? new Date(`${f}T12:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }) : "";
+// El año del cumpleaños es opcional: sin año se guarda como 1900 y se muestra
+// solo día y mes.
+const ANIO_SIN_DATO = "1900";
+const fechaCumple = (f) => {
+  if (!f) return "";
+  const sinAnio = f.startsWith(ANIO_SIN_DATO);
+  return new Date(`${f}T12:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", day: "numeric", month: "long", ...(sinAnio ? {} : { year: "numeric" }) });
+};
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const diasDelMes = (mes, anio) => (mes ? new Date(Number(anio) || 2000, Number(mes), 0).getDate() : 31); // 2000 es bisiesto: deja el 29 de feb
+
+// Día, mes y año en listas separadas (el calendario del celular es incómodo
+// para buscar un año de nacimiento).
+function SelectorCumple({ valor, onChange }) {
+  const selectCls = "border border-gray-300 rounded-xl px-2 py-3 text-base outline-none focus:border-pink-500 bg-white";
+  const anioActual = new Date().getFullYear();
+  const anios = Array.from({ length: 90 }, (_, i) => anioActual - 10 - i);
+  const cambiar = (campo, v) => {
+    const nuevo = { ...valor, [campo]: v };
+    if (nuevo.dia && Number(nuevo.dia) > diasDelMes(nuevo.mes, nuevo.anio)) nuevo.dia = "";
+    onChange(nuevo);
+  };
+  return (
+    <div className="grid grid-cols-[1fr_1.6fr_1.2fr] gap-2">
+      <select value={valor.dia} onChange={(e) => cambiar("dia", e.target.value)} className={selectCls} aria-label="Día">
+        <option value="">Día</option>
+        {Array.from({ length: diasDelMes(valor.mes, valor.anio) }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+      </select>
+      <select value={valor.mes} onChange={(e) => cambiar("mes", e.target.value)} className={selectCls} aria-label="Mes">
+        <option value="">Mes</option>
+        {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+      </select>
+      <select value={valor.anio} onChange={(e) => cambiar("anio", e.target.value)} className={selectCls} aria-label="Año">
+        <option value="">Año</option>
+        {anios.map((a) => <option key={a} value={a}>{a}</option>)}
+      </select>
+    </div>
+  );
+}
+
+const cumpleISO = ({ dia, mes, anio }) =>
+  dia && mes ? `${anio || ANIO_SIN_DATO}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}` : "";
 const NOMBRE_TIENDA = "P&P Princesas y Princesitas";
 
 async function llamarApi(cuerpo) {
@@ -71,7 +113,7 @@ function PoliticaDatos() {
     <div className="text-xs text-gray-600 flex flex-col gap-1.5">
       <p>{NOMBRE_TIENDA} es responsable de los datos que registras aquí (Ley 1581 de 2012).</p>
       <p><b>Para qué los usamos:</b> tu nombre, celular y número de factura se usan para la rifa (asignarte números y contactarte si ganas). Solo si marcas la casilla de promociones, también usaremos tu celular y tu fecha de cumpleaños para enviarte por WhatsApp novedades, descuentos y saludos de cumpleaños.</p>
-      <p><b>Tus derechos:</b> puedes conocer, actualizar o pedir que borremos tus datos, y dejar de recibir promociones cuando quieras, pidiéndolo en la tienda o respondiendo cualquiera de nuestros mensajes con la palabra BAJA.</p>
+      <p><b>Tus derechos:</b> puedes conocer, actualizar o pedir que borremos tus datos, y dejar de recibir promociones cuando quieras, pidiéndolo en la tienda o respondiendo cualquiera de nuestros mensajes con la palabra SALIR.</p>
       <p>No vendemos ni compartimos tus datos con nadie.</p>
     </div>
   );
@@ -83,7 +125,8 @@ function RifaCliente() {
   const [factura, setFactura] = useState("");
   const [total, setTotal] = useState("");
   const [compra, setCompra] = useState(null);
-  const [datos, setDatos] = useState({ nombre: "", celular: "", cumple: "" });
+  const [datos, setDatos] = useState({ nombre: "", celular: "" });
+  const [cumple, setCumple] = useState({ dia: "", mes: "", anio: "" });
   const [aceptaReglamento, setAceptaReglamento] = useState(false);
   const [autorizaMarketing, setAutorizaMarketing] = useState(false);
   const [resultado, setResultado] = useState(null);
@@ -122,9 +165,13 @@ function RifaCliente() {
   const registrar = async (e) => {
     e.preventDefault();
     setError("");
+    if ((cumple.dia || cumple.mes || cumple.anio) && !(cumple.dia && cumple.mes)) {
+      setError("Para tu cumpleaños elige al menos el día y el mes (o déjalo vacío).");
+      return;
+    }
     setEnviando(true);
     try {
-      const r = await llamarApi({ accion: "registrar", factura: compra.factura, total, ...datos, aceptaReglamento, autorizaMarketing });
+      const r = await llamarApi({ accion: "registrar", factura: compra.factura, total, ...datos, cumple: cumpleISO(cumple), aceptaReglamento, autorizaMarketing });
       setResultado(r);
       setPaso("listo");
     } catch (err) {
@@ -202,7 +249,7 @@ function RifaCliente() {
             </div>
             <div>
               <label className="text-sm font-semibold text-gray-700 block mb-1.5">Tu cumpleaños <span className="font-normal text-gray-400">(opcional)</span></label>
-              <input type="date" value={datos.cumple} onChange={(e) => setDatos({ ...datos, cumple: e.target.value })} className={inputCls} />
+              <SelectorCumple valor={cumple} onChange={setCumple} />
             </div>
 
             <label className="flex items-start gap-2.5 text-sm text-gray-700">
@@ -216,7 +263,7 @@ function RifaCliente() {
 
             <label className="flex items-start gap-2.5 text-sm text-gray-700">
               <input type="checkbox" checked={autorizaMarketing} onChange={(e) => setAutorizaMarketing(e.target.checked)} className="mt-0.5 w-5 h-5 accent-pink-600 shrink-0" />
-              <span>Quiero recibir por WhatsApp promociones, novedades y una sorpresa en mi cumpleaños. Puedo darme de baja cuando quiera. <span className="text-gray-400">(Opcional)</span></span>
+              <span>Quiero recibir por WhatsApp promociones, novedades y una sorpresa en mi cumpleaños. Puedo cancelar estos mensajes cuando quiera. <span className="text-gray-400">(Opcional)</span></span>
             </label>
             <details className="-mt-2 ml-7">
               <summary className="text-xs text-pink-700 font-semibold cursor-pointer">Política de tratamiento de datos</summary>
@@ -267,11 +314,11 @@ function RifaCliente() {
 
 const ADMIN_STORAGE = "rifa_admin";
 
-function descargarCSV(registros) {
-  const columnas = ["Fecha registro", "Nombre", "Celular", "Cumpleaños", "Autoriza promociones", "Factura", "Fecha compra", "Valor compra", "Números"];
+function descargarCSV(registros, sufijo = "") {
+  const columnas = ["Fecha registro", "Nombre", "Celular", "Cumpleaños", "Acepta WhatsApp", "Factura", "Fecha compra", "Valor compra", "Números"];
   const filas = registros.map((r) => [
     new Date(r.creado_en).toLocaleString("es-CO", { timeZone: "America/Bogota" }),
-    r.nombre, r.celular, r.cumple || "",
+    r.nombre, r.celular, fechaCumple(r.cumple),
     r.autoriza_marketing ? "Sí" : "No",
     r.factura, r.fecha_compra || "", Number(r.monto),
     (r.rifa_boletas || []).map((b) => formatoNumero(b.numero)).sort().join(" "),
@@ -282,7 +329,7 @@ function descargarCSV(registros) {
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `rifa-registros-${new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" })}.csv`;
+  a.download = `rifa-registros${sufijo}-${new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" })}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -294,6 +341,7 @@ function RifaAdmin() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  const [filtroWhatsApp, setFiltroWhatsApp] = useState("todos"); // 'todos' | 'si' | 'no'
   const [verAjustes, setVerAjustes] = useState(false);
   const [verQR, setVerQR] = useState(false);
   const [borrador, setBorrador] = useState(null);
@@ -351,13 +399,14 @@ function RifaAdmin() {
   const registros = datos?.registros || [];
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    if (!q) return registros;
     const comoNumero = /^\d{1,3}$/.test(q) ? Number(q) : null;
     return registros.filter((r) =>
-      (comoNumero !== null && (r.rifa_boletas || []).some((b) => b.numero === comoNumero)) ||
-      r.nombre.toLowerCase().includes(q) || r.celular.includes(q) || r.factura.toLowerCase().includes(q)
+      (filtroWhatsApp === "todos" || r.autoriza_marketing === (filtroWhatsApp === "si")) &&
+      (!q ||
+        (comoNumero !== null && (r.rifa_boletas || []).some((b) => b.numero === comoNumero)) ||
+        r.nombre.toLowerCase().includes(q) || r.celular.includes(q) || r.factura.toLowerCase().includes(q))
     );
-  }, [registros, busqueda]);
+  }, [registros, busqueda, filtroWhatsApp]);
 
   if (!clave) {
     return (
@@ -442,7 +491,7 @@ function RifaAdmin() {
           ["Facturas registradas", registros.length],
           ["Clientes distintos", clientesUnicos],
           ["Números entregados", `${numerosEntregados} / ${ajustes.totalNumeros}`],
-          ["Aceptan promociones", registros.length ? `${autorizan} (${Math.round((autorizan / registros.length) * 100)}%)` : "0"],
+          ["Aceptan WhatsApp", registros.length ? `${autorizan} (${Math.round((autorizan / registros.length) * 100)}%)` : "0"],
         ].map(([etiqueta, valor]) => (
           <div key={etiqueta} className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm">
             <div className="text-xs text-gray-500">{etiqueta}</div>
@@ -461,9 +510,24 @@ function RifaAdmin() {
               className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm"
             />
           </div>
-          <button onClick={() => descargarCSV(registros)} disabled={!registros.length} className="flex items-center justify-center gap-1.5 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg px-3 py-2 disabled:opacity-50">
-            <Download size={15} />Descargar base (Excel)
+          <button onClick={() => descargarCSV(filtrados, { si: "-aceptan-whatsapp", no: "-no-aceptan" }[filtroWhatsApp] || "")} disabled={!filtrados.length} className="flex items-center justify-center gap-1.5 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg px-3 py-2 disabled:opacity-50">
+            <Download size={15} />Descargar {filtroWhatsApp === "todos" ? "base" : "esta lista"} (Excel)
           </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-gray-500 mr-1">Mensajes por WhatsApp:</span>
+          {[
+            ["todos", `Todos (${registros.length})`],
+            ["si", `Aceptaron (${autorizan})`],
+            ["no", `No aceptaron (${registros.length - autorizan})`],
+          ].map(([valor, texto]) => (
+            <button
+              key={valor} onClick={() => setFiltroWhatsApp(valor)}
+              className={`font-semibold px-2.5 py-1 rounded-full border ${filtroWhatsApp === valor ? "bg-emerald-700 text-white border-emerald-700" : "bg-white text-gray-600 border-gray-300"}`}
+            >
+              {texto}
+            </button>
+          ))}
         </div>
 
         {filtrados.length === 0 ? (
@@ -478,7 +542,7 @@ function RifaAdmin() {
                   <th className="font-medium py-2">Cumpleaños</th>
                   <th className="font-medium py-2">Factura</th>
                   <th className="font-medium py-2 text-right">Compra</th>
-                  <th className="font-medium py-2 text-center">Promos</th>
+                  <th className="font-medium py-2 text-center">Acepta WhatsApp</th>
                   <th className="font-medium py-2 pr-4"></th>
                 </tr>
               </thead>
@@ -497,14 +561,18 @@ function RifaAdmin() {
                       <a href={`https://wa.me/57${r.celular}`} target="_blank" rel="noreferrer" className="text-xs text-emerald-700 hover:underline">{r.celular}</a>
                     </td>
                     <td className="py-2 text-xs text-gray-600">
-                      {r.cumple ? `🎂 ${fechaCorta(r.cumple)}` : "—"}
+                      {r.cumple ? `🎂 ${fechaCumple(r.cumple)}` : "—"}
                     </td>
                     <td className="py-2 text-xs text-gray-600">
                       {r.factura}
                       <div className="text-gray-400">{r.fecha_compra}</div>
                     </td>
                     <td className="py-2 text-right tabular-nums">{formatoCOP(r.monto)}</td>
-                    <td className="py-2 text-center">{r.autoriza_marketing ? "✓" : "—"}</td>
+                    <td className="py-2 text-center">
+                      {r.autoriza_marketing
+                        ? <span className="text-xs font-semibold bg-emerald-100 text-emerald-800 rounded-full px-2 py-0.5">Sí</span>
+                        : <span className="text-xs font-semibold bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">No</span>}
+                    </td>
                     <td className="py-2 pr-4 text-right">
                       <button onClick={() => borrar(r)} title="Borrar registro" className="p-1 text-gray-300 hover:text-red-600"><Trash2 size={14} /></button>
                     </td>
