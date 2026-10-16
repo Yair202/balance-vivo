@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Gift, Lock, Search, Download, Trash2, Settings, CheckCircle2, Ticket, ArrowLeft, QrCode, Upload, Image as ImageIcon } from "lucide-react";
+import { Gift, Lock, Search, Download, Trash2, Settings, CheckCircle2, Ticket, ArrowLeft, QrCode, Upload, Image as ImageIcon, Sheet, Copy } from "lucide-react";
 import logoCorona from "./assets/logo-corona.jpg";
 
 /**
@@ -407,6 +407,53 @@ function RifaAdmin() {
     }
   };
 
+  const [verRespaldo, setVerRespaldo] = useState(false);
+  const [urlRespaldo, setUrlRespaldo] = useState("");
+  const [respaldando, setRespaldando] = useState(false);
+  const [avisoRespaldo, setAvisoRespaldo] = useState("");
+  const [codigoCopiado, setCodigoCopiado] = useState(false);
+  useEffect(() => { if (datos) setUrlRespaldo(datos.ajustes.respaldoUrl || ""); }, [datos]);
+
+  const guardarUrlRespaldo = async () => {
+    setError("");
+    setAvisoRespaldo("");
+    const url = urlRespaldo.trim();
+    if (url && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) {
+      setError("Ese enlace no parece el de la aplicación web: debe empezar por https://script.google.com/macros/s/ y terminar en /exec");
+      return;
+    }
+    try {
+      await llamarApi({ accion: "guardarAjustes", contrasena: clave, ajustes: { ...datos.ajustes, respaldoUrl: url } });
+      await cargar();
+      if (url) await enviarTodoAlRespaldo();
+    } catch (e) { setError(e.message); }
+  };
+
+  const enviarTodoAlRespaldo = async () => {
+    setError("");
+    setAvisoRespaldo("");
+    setRespaldando(true);
+    try {
+      const r = await llamarApi({ accion: "respaldoTodo", contrasena: clave });
+      setAvisoRespaldo(`✓ Listo: ${r.filas} ${r.filas === 1 ? "registro enviado" : "registros enviados"} a tu hoja de Google.`);
+      await cargar();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRespaldando(false);
+    }
+  };
+
+  const copiarCodigo = async () => {
+    try {
+      await navigator.clipboard.writeText(datos.codigoAppsScript);
+      setCodigoCopiado(true);
+      setTimeout(() => setCodigoCopiado(false), 2500);
+    } catch {
+      setError("No se pudo copiar automáticamente: selecciona el código y cópialo a mano.");
+    }
+  };
+
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const cambiarFoto = async (archivo) => {
     setError("");
@@ -473,7 +520,9 @@ function RifaAdmin() {
 
   if (!datos) return <p className="text-sm text-gray-400 text-center py-10">{error || "Cargando..."}</p>;
 
-  const { ajustes } = datos;
+  const { ajustes, estadoRespaldo } = datos;
+  const respaldoActivo = !!ajustes.respaldoUrl;
+  const fechaHora = (iso) => new Date(iso).toLocaleString("es-CO", { timeZone: "America/Bogota", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const numerosEntregados = registros.reduce((s, r) => s + (r.rifa_boletas || []).length, 0);
   const autorizan = registros.filter((r) => r.autoriza_marketing).length;
   const clientesUnicos = new Set(registros.map((r) => r.celular)).size;
@@ -549,6 +598,66 @@ function RifaAdmin() {
           </div>
         </div>
       )}
+
+      <div className={`rounded-2xl border p-4 shadow-sm flex flex-col gap-3 ${
+        !respaldoActivo ? "border-amber-300 bg-amber-50" : estadoRespaldo && !estadoRespaldo.ok ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold flex items-center gap-2"><Sheet size={16} className="text-emerald-700" />Respaldo automático en Google Sheets</h2>
+            <p className="text-xs text-gray-600 mt-0.5">
+              {!respaldoActivo
+                ? "Sin configurar: los registros solo están en la base de datos. Configúralo para tener una copia en tu Google Drive."
+                : !estadoRespaldo
+                  ? "Configurado. Cada registro nuevo se copiará a tu hoja."
+                  : estadoRespaldo.ok
+                    ? `Funcionando ✓ — último envío: ${fechaHora(estadoRespaldo.fecha)}. Cada registro nuevo se copia al instante.`
+                    : `⚠ El último envío falló (${fechaHora(estadoRespaldo.fecha)}): ${estadoRespaldo.error} Los registros siguen guardados en la base; cuando lo arregles, dale "Enviar todo ahora".`}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {respaldoActivo && (
+              <button onClick={enviarTodoAlRespaldo} disabled={respaldando} className="text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg px-3 py-1.5 disabled:opacity-50 whitespace-nowrap">
+                {respaldando ? "Enviando..." : "Enviar todo ahora"}
+              </button>
+            )}
+            <button onClick={() => setVerRespaldo(!verRespaldo)} className="text-xs font-semibold text-gray-600 border border-gray-300 bg-white rounded-lg px-3 py-1.5 whitespace-nowrap">
+              {verRespaldo ? "Cerrar" : respaldoActivo ? "Configuración" : "Configurar"}
+            </button>
+          </div>
+        </div>
+        {avisoRespaldo && <p className="text-xs text-emerald-800 bg-emerald-100 rounded-lg px-3 py-1.5">{avisoRespaldo}</p>}
+
+        {verRespaldo && (
+          <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col gap-3 text-sm">
+            <ol className="list-decimal pl-5 flex flex-col gap-1.5 text-gray-700">
+              <li>Abre <a href="https://sheets.new" target="_blank" rel="noreferrer" className="text-emerald-700 font-semibold hover:underline">sheets.new</a> (crea una hoja nueva en tu Google Drive) y ponle un nombre, por ejemplo "Respaldo rifa P&P".</li>
+              <li>En esa hoja ve a <b>Extensiones → Apps Script</b>.</li>
+              <li>Borra lo que aparece escrito y pega este código (botón <b>Copiar código</b>). Luego dale al ícono de guardar 💾.</li>
+              <li>Arriba a la derecha: <b>Implementar → Nueva implementación</b>. En el engranaje ⚙ elige <b>Aplicación web</b>. En "Ejecutar como" deja <b>Yo</b> y en "Quién tiene acceso" elige <b>Cualquier usuario</b>. Dale <b>Implementar</b>.</li>
+              <li>Google te pide autorizar: elige tu cuenta → <b>Configuración avanzada</b> → <b>Ir a … (no seguro)</b> → <b>Permitir</b>. (Sale ese aviso porque el código es tuyo y no está verificado por Google; solo puede escribir en esa hoja.)</li>
+              <li>Copia la <b>URL de la aplicación web</b> (termina en <code>/exec</code>), pégala abajo y dale <b>Guardar y probar</b>.</li>
+            </ol>
+            <div className="relative">
+              <pre className="text-[11px] leading-snug bg-gray-900 text-gray-100 rounded-lg p-3 max-h-48 overflow-auto whitespace-pre">{datos.codigoAppsScript}</pre>
+              <button onClick={copiarCodigo} className="absolute top-2 right-2 text-xs font-semibold bg-white text-gray-800 rounded-md px-2 py-1 flex items-center gap-1">
+                <Copy size={12} />{codigoCopiado ? "¡Copiado!" : "Copiar código"}
+              </button>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                value={urlRespaldo} onChange={(e) => setUrlRespaldo(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <button onClick={guardarUrlRespaldo} disabled={respaldando} className="text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg px-3 py-2 disabled:opacity-50 whitespace-nowrap">
+                Guardar y probar
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">En la hoja nunca se borra nada: si borras un registro aquí, allá queda marcado como "Borrado". Para bajarla como Excel: Archivo → Descargar → Microsoft Excel.</p>
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
