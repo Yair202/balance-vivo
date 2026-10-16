@@ -15,28 +15,15 @@
  *   POST { accion: "verificar", factura, total }
  *   POST { accion: "registrar", factura, total, nombre, celular, cumple,
  *          autorizaMarketing, aceptaReglamento }
- *   POST { accion: "admin" | "guardarAjustes" | "guardarFoto" | "borrar" | "respaldoTodo", contrasena, ... }
- * Cada registro (y cada borrado) se copia además a una hoja de Google Sheets
- * si está configurada — ver scripts/lib/respaldo-rifa.mjs.
+ *   POST { accion: "admin" | "guardarAjustes" | "guardarFoto" | "borrar", contrasena, ... }
  * ---------------------------------------------------------------------------
  */
 import {
   obtenerAjustesRifa, guardarAjustesRifa, registroRifaPorFactura, crearRegistroRifa,
   borrarRegistroRifa, asignarNumerosRifa, numerosRifaOcupados, listarRegistrosRifa,
-  obtenerFotoRifa, guardarFotoRifa, registroRifaPorId, obtenerEstadoRespaldo, guardarEstadoRespaldo,
+  obtenerFotoRifa, guardarFotoRifa,
 } from "../scripts/lib/supabase.mjs";
 import { obtenerOrdenPOS } from "../scripts/lib/valor-teorico.mjs";
-import { filaRespaldo, enviarRespaldo, codigoAppsScript } from "../scripts/lib/respaldo-rifa.mjs";
-import { randomBytes } from "node:crypto";
-
-// Copia a Google Sheets (si está configurado). Nunca lanza: si Google falla,
-// el registro de la clienta sigue bien y el panel muestra el aviso.
-async function respaldar(env, ajustes, filas) {
-  if (!ajustes.respaldoUrl) return null;
-  const resultado = await enviarRespaldo(ajustes, filas);
-  try { await guardarEstadoRespaldo(env, { ...resultado, filas: filas.length }); } catch { /* no es crítico */ }
-  return resultado;
-}
 
 const fechaBogota = (fechaOdooUTC) =>
   new Date(fechaOdooUTC.replace(" ", "T") + "Z").toLocaleDateString("en-CA", { timeZone: "America/Bogota" });
@@ -117,7 +104,6 @@ async function publico(env, req, res) {
       await borrarRegistroRifa(env, registro.id);
       throw new ErrorCliente("¡Ya se entregaron todos los números de la rifa! Gracias por tu compra.");
     }
-    await respaldar(env, ajustes, [filaRespaldo({ ...registro, rifa_boletas: numeros.map((numero) => ({ numero })) })]);
     return res.status(200).json({ factura: orden.numero, nombre: nombreLimpio, numeros, faltaron: orden.cantidad - numeros.length });
   }
 
@@ -131,30 +117,14 @@ async function admin(env, req, res) {
   if (contrasena !== env.VITE_APP_PASSWORD) return res.status(401).json({ error: "Contraseña de administrador incorrecta." });
 
   if (accion === "admin") {
-    let [config, registros, estadoRespaldo] = await Promise.all([obtenerAjustesRifa(env), listarRegistrosRifa(env), obtenerEstadoRespaldo(env)]);
-    // Clave que comparten el servidor y el código de la hoja de Google (así
-    // nadie más puede escribir en tu hoja aunque conozca el enlace).
-    if (!config.respaldoToken) {
-      config = { ...config, respaldoToken: randomBytes(16).toString("hex") };
-      await guardarAjustesRifa(env, config);
-    }
-    return res.status(200).json({ ajustes: config, registros, estadoRespaldo, codigoAppsScript: codigoAppsScript(config.respaldoToken) });
-  }
-  if (accion === "respaldoTodo") {
     const [config, registros] = await Promise.all([obtenerAjustesRifa(env), listarRegistrosRifa(env)]);
-    if (!config.respaldoUrl) return res.status(400).json({ error: "Primero pega el enlace de la aplicación web de Google y guarda los ajustes." });
-    const resultado = await respaldar(env, config, registros.slice().reverse().map((r) => filaRespaldo(r)));
-    if (!resultado.ok) return res.status(502).json({ error: `No se pudo enviar a Google Sheets: ${resultado.error}` });
-    return res.status(200).json({ ok: true, filas: registros.length });
+    return res.status(200).json({ ajustes: config, registros });
   }
   if (accion === "guardarAjustes") {
     const fechaValida = (f) => (/^\d{4}-\d{2}-\d{2}$/.test(f || "") ? f : "");
     const actual = await obtenerAjustesRifa(env);
     await guardarAjustesRifa(env, {
       fotoVersion: actual.fotoVersion || null, // la foto se cambia aparte (guardarFoto)
-      respaldoToken: actual.respaldoToken || null,
-      respaldoUrl: /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(String(ajustes?.respaldoUrl || "").trim())
-        ? String(ajustes.respaldoUrl).trim() : "",
       valorBoleta: Math.max(1000, Number(ajustes?.valorBoleta) || 130000),
       totalNumeros: Math.min(10000, Math.max(10, Number(ajustes?.totalNumeros) || 1000)),
       inicio: fechaValida(ajustes?.inicio),
@@ -176,10 +146,7 @@ async function admin(env, req, res) {
   }
   if (accion === "borrar") {
     if (!id) return res.status(400).json({ error: "Falta el registro." });
-    const registro = await registroRifaPorId(env, id);
     await borrarRegistroRifa(env, id); // sus números quedan libres otra vez
-    // En la hoja de respaldo no se borra: queda marcado como "Borrado".
-    if (registro) await respaldar(env, await obtenerAjustesRifa(env), [filaRespaldo(registro, "Borrado")]);
     return res.status(200).json({ ok: true });
   }
   return res.status(400).json({ error: "Acción desconocida." });
@@ -205,7 +172,7 @@ export default async function handler(req, res) {
     }
     if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
     const accion = req.body?.accion;
-    if (["admin", "guardarAjustes", "guardarFoto", "borrar", "respaldoTodo"].includes(accion)) return await admin(env, req, res);
+    if (["admin", "guardarAjustes", "guardarFoto", "borrar"].includes(accion)) return await admin(env, req, res);
     return await publico(env, req, res);
   } catch (err) {
     if (err instanceof ErrorCliente) return res.status(400).json({ error: err.message });

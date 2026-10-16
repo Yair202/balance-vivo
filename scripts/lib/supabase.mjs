@@ -276,23 +276,3 @@ export async function guardarFotoRifa(env, dataUrl) {
     body: JSON.stringify({ clave: "rifa_foto", valor: { dataUrl }, actualizado_en: new Date().toISOString() }),
   });
 }
-
-export async function registroRifaPorId(env, id) {
-  const [fila] = await supaFetch(env, `rifa_registros?id=eq.${Number(id)}&select=*,rifa_boletas(numero)`);
-  return fila || null;
-}
-
-// Resultado del último envío al respaldo de Google Sheets (fila aparte de
-// `ajustes` para no pisar los ajustes de la rifa si se guardan a la vez).
-export async function obtenerEstadoRespaldo(env) {
-  const filas = await supaFetch(env, "ajustes?clave=eq.rifa_respaldo");
-  return filas[0]?.valor || null;
-}
-
-export async function guardarEstadoRespaldo(env, estado) {
-  await supaFetch(env, "ajustes?on_conflict=clave", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates" },
-    body: JSON.stringify({ clave: "rifa_respaldo", valor: { ...estado, fecha: new Date().toISOString() }, actualizado_en: new Date().toISOString() }),
-  });
-}
