@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Gift, Lock, Search, Download, Trash2, Settings, CheckCircle2, Ticket, ArrowLeft, QrCode } from "lucide-react";
+import { Gift, Lock, Search, Download, Trash2, Settings, CheckCircle2, Ticket, ArrowLeft, QrCode, Upload, Image as ImageIcon } from "lucide-react";
 import logoCorona from "./assets/logo-corona.jpg";
 
 /**
@@ -199,8 +199,14 @@ function RifaCliente() {
 
         {paso === "factura" && (
           <>
-            {(config.premio || config.fechaSorteo) && (
+            {(config.premio || config.fechaSorteo || config.fotoVersion) && (
               <div className="rounded-2xl bg-white border border-pink-200 p-4 text-center shadow-sm">
+                {config.fotoVersion && (
+                  <img
+                    src={`/api/rifa?foto=1&v=${config.fotoVersion}`} alt={config.premio || "Premio de la rifa"}
+                    className="w-full max-h-80 object-contain rounded-xl mb-3"
+                  />
+                )}
                 {config.premio && <p className="text-base font-semibold text-pink-700 flex items-center justify-center gap-2"><Gift size={18} />{config.premio}</p>}
                 {config.fechaSorteo && <p className="text-sm text-gray-500 mt-1">Sorteo: {fechaCorta(config.fechaSorteo)}</p>}
               </div>
@@ -314,6 +320,29 @@ function RifaCliente() {
 
 const ADMIN_STORAGE = "rifa_admin";
 
+// Las fotos del celular pesan varios MB: se reducen aquí (máx. 1200 px, JPEG)
+// antes de subirlas, para que la página de la rifa cargue rápido.
+function reducirFoto(archivo, maxLado = 1200) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(archivo);
+    const img = new Image();
+    img.onload = () => {
+      const escala = Math.min(1, maxLado / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * escala);
+      canvas.height = Math.round(img.height * escala);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff"; // fondo blanco por si es PNG con transparencia
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("No se pudo leer esa imagen. Prueba con una foto JPG o PNG.")); };
+    img.src = url;
+  });
+}
+
 function descargarCSV(registros, sufijo = "") {
   const columnas = ["Fecha registro", "Nombre", "Celular", "Cumpleaños", "Acepta WhatsApp", "Factura", "Fecha compra", "Valor compra", "Números"];
   const filas = registros.map((r) => [
@@ -375,6 +404,21 @@ function RifaAdmin() {
       try { sessionStorage.setItem(ADMIN_STORAGE, claveInput); } catch {}
       setClave(claveInput);
       setClaveInput("");
+    }
+  };
+
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const cambiarFoto = async (archivo) => {
+    setError("");
+    setSubiendoFoto(true);
+    try {
+      const foto = archivo ? await reducirFoto(archivo) : null;
+      await llamarApi({ accion: "guardarFoto", contrasena: clave, foto });
+      await cargar();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSubiendoFoto(false);
     }
   };
 
@@ -460,6 +504,26 @@ function RifaAdmin() {
       {verAjustes && borrador && (
         <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col gap-3">
           <h2 className="text-sm font-semibold">Ajustes de la rifa</h2>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 pb-3 border-b border-gray-100">
+            <div className="w-32 h-32 rounded-xl bg-gray-50 border border-dashed border-gray-300 flex items-center justify-center overflow-hidden shrink-0">
+              {ajustes.fotoVersion
+                ? <img src={`/api/rifa?foto=1&v=${ajustes.fotoVersion}`} alt="Foto del premio" className="w-full h-full object-contain" />
+                : <ImageIcon size={28} className="text-gray-300" />}
+            </div>
+            <div className="flex flex-col gap-2 text-sm">
+              <span className="text-xs text-gray-500">Foto del premio (la ven los clientes al registrarse)</span>
+              <div className="flex flex-wrap gap-2">
+                <label className={`text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg px-3 py-1.5 cursor-pointer flex items-center gap-1.5 ${subiendoFoto ? "opacity-50 pointer-events-none" : ""}`}>
+                  <Upload size={13} />{subiendoFoto ? "Subiendo..." : ajustes.fotoVersion ? "Cambiar foto" : "Subir foto"}
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) cambiarFoto(f); }} />
+                </label>
+                {ajustes.fotoVersion && !subiendoFoto && (
+                  <button onClick={() => window.confirm("¿Quitar la foto del premio?") && cambiarFoto(null)} className="text-xs font-semibold text-gray-500 border border-gray-300 rounded-lg px-3 py-1.5">Quitar foto</button>
+                )}
+              </div>
+              <span className="text-xs text-gray-400">Se guarda apenas la eliges, sin necesidad de darle Guardar.</span>
+            </div>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
             {[
               ["valorBoleta", "Valor de compra por número", "number"],

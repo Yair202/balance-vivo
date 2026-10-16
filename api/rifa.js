@@ -11,15 +11,17 @@
  * la vuelven a escribir (con el total correcto) se le muestran sus números.
  *
  *   GET  -> datos públicos de la rifa (valor por número, fechas, premio)
+ *   GET ?foto=1 -> la foto del premio (imagen)
  *   POST { accion: "verificar", factura, total }
  *   POST { accion: "registrar", factura, total, nombre, celular, cumple,
  *          autorizaMarketing, aceptaReglamento }
- *   POST { accion: "admin" | "guardarAjustes" | "borrar", contrasena, ... }
+ *   POST { accion: "admin" | "guardarAjustes" | "guardarFoto" | "borrar", contrasena, ... }
  * ---------------------------------------------------------------------------
  */
 import {
   obtenerAjustesRifa, guardarAjustesRifa, registroRifaPorFactura, crearRegistroRifa,
   borrarRegistroRifa, asignarNumerosRifa, numerosRifaOcupados, listarRegistrosRifa,
+  obtenerFotoRifa, guardarFotoRifa,
 } from "../scripts/lib/supabase.mjs";
 import { obtenerOrdenPOS } from "../scripts/lib/valor-teorico.mjs";
 
@@ -111,7 +113,7 @@ async function publico(env, req, res) {
 const formato = (v) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(v || 0);
 
 async function admin(env, req, res) {
-  const { accion, contrasena, ajustes, id } = req.body || {};
+  const { accion, contrasena, ajustes, id, foto } = req.body || {};
   if (contrasena !== env.VITE_APP_PASSWORD) return res.status(401).json({ error: "Contraseña de administrador incorrecta." });
 
   if (accion === "admin") {
@@ -120,7 +122,9 @@ async function admin(env, req, res) {
   }
   if (accion === "guardarAjustes") {
     const fechaValida = (f) => (/^\d{4}-\d{2}-\d{2}$/.test(f || "") ? f : "");
+    const actual = await obtenerAjustesRifa(env);
     await guardarAjustesRifa(env, {
+      fotoVersion: actual.fotoVersion || null, // la foto se cambia aparte (guardarFoto)
       valorBoleta: Math.max(1000, Number(ajustes?.valorBoleta) || 130000),
       totalNumeros: Math.min(10000, Math.max(10, Number(ajustes?.totalNumeros) || 1000)),
       inicio: fechaValida(ajustes?.inicio),
@@ -128,6 +132,16 @@ async function admin(env, req, res) {
       fechaSorteo: fechaValida(ajustes?.fechaSorteo),
       premio: String(ajustes?.premio || "").slice(0, 200),
     });
+    return res.status(200).json({ ok: true });
+  }
+  if (accion === "guardarFoto") {
+    // La foto llega ya reducida desde el navegador (JPEG de ~1200 px).
+    if (foto && (!/^data:image\/(jpeg|png|webp);base64,/.test(foto) || foto.length > 3_000_000)) {
+      return res.status(400).json({ error: "La foto no es válida o es muy pesada." });
+    }
+    await guardarFotoRifa(env, foto || null);
+    const actual = await obtenerAjustesRifa(env);
+    await guardarAjustesRifa(env, { ...actual, fotoVersion: foto ? Date.now() : null });
     return res.status(200).json({ ok: true });
   }
   if (accion === "borrar") {
@@ -141,14 +155,24 @@ async function admin(env, req, res) {
 export default async function handler(req, res) {
   const env = process.env;
   try {
+    if (req.method === "GET" && req.query?.foto) {
+      const dataUrl = await obtenerFotoRifa(env);
+      if (!dataUrl) return res.status(404).end();
+      const [, tipo, base64] = dataUrl.match(/^data:([^;]+);base64,(.*)$/);
+      // La página pide la foto con ?v=<versión>: si la cambian, cambia la URL,
+      // así que se puede guardar en caché sin riesgo de mostrar una vieja.
+      res.setHeader("Content-Type", tipo);
+      res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=31536000");
+      return res.status(200).send(Buffer.from(base64, "base64"));
+    }
     if (req.method === "GET") {
       const [ajustes, ocupados] = await Promise.all([obtenerAjustesRifa(env), numerosRifaOcupados(env)]);
-      const { valorBoleta, inicio, fin, fechaSorteo, premio, totalNumeros } = ajustes;
-      return res.status(200).json({ valorBoleta, inicio, fin, fechaSorteo, premio, disponibles: totalNumeros - ocupados.size });
+      const { valorBoleta, inicio, fin, fechaSorteo, premio, totalNumeros, fotoVersion } = ajustes;
+      return res.status(200).json({ valorBoleta, inicio, fin, fechaSorteo, premio, fotoVersion: fotoVersion || null, disponibles: totalNumeros - ocupados.size });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
     const accion = req.body?.accion;
-    if (["admin", "guardarAjustes", "borrar"].includes(accion)) return await admin(env, req, res);
+    if (["admin", "guardarAjustes", "guardarFoto", "borrar"].includes(accion)) return await admin(env, req, res);
     return await publico(env, req, res);
   } catch (err) {
     if (err instanceof ErrorCliente) return res.status(400).json({ error: err.message });

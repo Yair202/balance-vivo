@@ -256,3 +256,23 @@ export async function asignarNumerosRifa(env, registroId, cantidad, totalNumeros
 export async function listarRegistrosRifa(env) {
   return supaFetch(env, "rifa_registros?select=*,rifa_boletas(numero)&order=creado_en.desc&limit=5000");
 }
+
+// Foto del premio: en su propia fila de `ajustes` (no junto a los demás ajustes
+// de la rifa) para que la página no la descargue cada vez que pide la
+// configuración — se pide aparte y el navegador la guarda en caché.
+export async function obtenerFotoRifa(env) {
+  const filas = await supaFetch(env, "ajustes?clave=eq.rifa_foto");
+  return filas[0]?.valor?.dataUrl || null;
+}
+
+export async function guardarFotoRifa(env, dataUrl) {
+  if (!dataUrl) {
+    await supaFetch(env, "ajustes?clave=eq.rifa_foto", { method: "DELETE" });
+    return;
+  }
+  await supaFetch(env, "ajustes?on_conflict=clave", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ clave: "rifa_foto", valor: { dataUrl }, actualizado_en: new Date().toISOString() }),
+  });
+}
