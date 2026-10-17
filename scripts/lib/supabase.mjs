@@ -146,11 +146,12 @@ export async function marcarRecogido(env, ids, recogido) {
   });
 }
 
-export async function marcarTurno(env, ids, { pagado, valor, adicional }) {
+export async function marcarTurno(env, ids, { pagado, valor, adicional, medio }) {
   const cambios = {};
   if (pagado !== undefined) {
     cambios.turno_pagado = pagado;
     cambios.turno_pagado_en = pagado ? new Date().toISOString() : null;
+    cambios.medio_pago_turno = pagado ? medio : null;
     // Si se des-marca, la comisión vuelve a calcularse con el % y la venta actuales.
     if (!pagado) cambios.comision_turno = null;
   }

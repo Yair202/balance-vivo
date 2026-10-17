@@ -685,7 +685,7 @@ function PanelAdmin({ onAjustesGuardados }) {
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
             <h2 className="text-sm font-semibold flex items-center gap-2"><Wallet size={16} className="text-emerald-700" />Dinero por recoger</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Lo contado cada día menos la base que se deja en caja. No incluye la base.</p>
+            <p className="text-xs text-gray-400 mt-0.5">Lo contado cada día menos la base que se deja en caja y los turnos pagados en efectivo.</p>
           </div>
           <button onClick={() => cargar()} disabled={cargando} className="text-xs font-semibold text-emerald-700 flex items-center gap-1 disabled:opacity-50">
             <RefreshCw size={13} className={cargando ? "animate-spin" : ""} />Actualizar
@@ -714,7 +714,10 @@ function PanelAdmin({ onAjustesGuardados }) {
               <div key={d.ids[0]} className="flex items-center gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
                 <div className="flex-1 min-w-0">
                   <div className="font-medium">{fechaLarga(d.fecha)} <span className="font-normal text-gray-400">· {d.responsable}</span></div>
-                  <div className="text-xs text-gray-400 tabular-nums">Contado {formatoCOP(d.contado)} − base {formatoCOP(d.base)}</div>
+                  <div className="text-xs text-gray-400 tabular-nums">
+                    Contado {formatoCOP(d.contado)} − base {formatoCOP(d.base)}
+                    {d.turnoEfectivo > 0 && <span className="text-amber-700"> − turno en efectivo {formatoCOP(d.turnoEfectivo)}</span>}
+                  </div>
                 </div>
                 <span className="tabular-nums font-semibold">{formatoCOP(d.aRecoger)}</span>
                 <BotonEstado listo={false} textoPendiente="Pendiente" onClick={() => accion({ accion: "recogido", ids: d.ids, recogido: true })} />
@@ -776,12 +779,15 @@ function PanelAdmin({ onAjustesGuardados }) {
             <div className="text-xl font-bold tabular-nums text-amber-700">{formatoCOP(totalTurnosPendiente)}</div>
           </div>
           {filtroEmpleado && turnosPendientes.length > 0 && (
-            <button
-              onClick={() => { if (confirm(`¿Marcar los ${turnosPendientes.length} turnos de ${filtroEmpleado} (${formatoCOP(totalTurnosPendiente)}) como pagados?`)) accion({ accion: "turno", ids: turnosPendientes.flatMap((d) => d.ids), pagado: true }); }}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg"
-            >
-              Pagar todo a {filtroEmpleado}
-            </button>
+            <BotonesPago
+              texto={`Pagar todo a ${filtroEmpleado}:`}
+              onPagar={(medio) => {
+                const aviso = medio === "efectivo" ? "\nCada turno se descuenta del dinero por recoger de su día." : "";
+                if (confirm(`¿Marcar los ${turnosPendientes.length} turnos de ${filtroEmpleado} (${formatoCOP(totalTurnosPendiente)}) como pagados por ${NOMBRE_MEDIO[medio]}?${aviso}`)) {
+                  accion({ accion: "turno", ids: turnosPendientes.flatMap((d) => d.ids), pagado: true, medio });
+                }
+              }}
+            />
           )}
         </div>
 
@@ -835,7 +841,30 @@ function CampoValor({ etiqueta, valorActual, disabled, onGuardar }) {
   );
 }
 
+const NOMBRE_MEDIO = { nequi: "Nequi", efectivo: "Efectivo" };
+
+// Pagar con Nequi o en efectivo. En efectivo se descuenta del dinero por
+// recoger del día de ese turno (lo calcula api/arqueo-admin.js).
+function BotonesPago({ texto = "Pagar:", onPagar }) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+      <span className="text-xs text-gray-400">{texto}</span>
+      {Object.entries(NOMBRE_MEDIO).map(([medio, nombre]) => (
+        <button
+          key={medio} onClick={() => onPagar(medio)}
+          className="text-xs font-semibold px-2.5 py-1 rounded-full border border-emerald-600 text-emerald-700 bg-white hover:bg-emerald-50 whitespace-nowrap"
+        >{nombre}</button>
+      ))}
+    </div>
+  );
+}
+
 function FilaTurno({ d, accion }) {
+  const deshacer = () => {
+    if (confirm(`¿Marcar el turno de ${d.responsable} (${fechaLarga(d.fecha)}) como NO pagado?${d.medioPago === "efectivo" ? "\nSe vuelve a sumar al dinero por recoger de ese día." : ""}`)) {
+      accion({ accion: "turno", ids: d.ids, pagado: false });
+    }
+  };
   return (
     <div className={`text-sm rounded-lg px-3 py-2 ${d.turnoPagado ? "border border-gray-100" : "bg-gray-50"}`}>
       <div className="flex items-center gap-2 mb-1.5">
@@ -844,7 +873,9 @@ function FilaTurno({ d, accion }) {
           <span className="text-gray-500"> · {fechaLarga(d.fecha)}</span>
           {d.turnoPagado && d.turnoPagadoEn && <span className="text-xs text-gray-400"> · pagado {fechaBogota(d.turnoPagadoEn)}</span>}
         </div>
-        <BotonEstado listo={d.turnoPagado} textoListo="Pagado" textoPendiente="Pendiente" onClick={() => accion({ accion: "turno", ids: d.ids, pagado: !d.turnoPagado })} />
+        {d.turnoPagado
+          ? <BotonEstado listo textoListo={d.medioPago ? `Pagado · ${NOMBRE_MEDIO[d.medioPago]}` : "Pagado"} onClick={deshacer} />
+          : <BotonesPago onPagar={(medio) => accion({ accion: "turno", ids: d.ids, pagado: true, medio })} />}
       </div>
       <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5">
         <CampoValor etiqueta="Turno" valorActual={d.valorTurno} disabled={d.turnoPagado} onGuardar={(v) => accion({ accion: "turno", ids: d.ids, valor: v })} />

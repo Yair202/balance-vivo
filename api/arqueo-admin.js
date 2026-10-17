@@ -12,7 +12,10 @@
  *   POST { contrasena, accion, ... }
  *        accion "resumen"         -> días (recolección + turnos) y ajustes
  *        accion "recogido"        { ids, recogido }
- *        accion "turno"           { ids, pagado?, valor? }
+ *        accion "turno"           { ids, pagado?, medio?, valor?, adicional? }
+ *                                 (medio "nequi" | "efectivo", obligatorio al pagar;
+ *                                  en efectivo se descuenta del dinero por recoger
+ *                                  de ese día)
  *        accion "guardarAjustes"  { ajustes }
  * ---------------------------------------------------------------------------
  */
@@ -62,6 +65,8 @@ function calcularTurno(f, ajustes, ventas) {
   };
 }
 
+const MEDIOS_PAGO = ["nequi", "efectivo"];
+
 const origenDe = (req) => `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
 
 async function resumen(env, origen) {
@@ -91,6 +96,10 @@ async function resumen(env, origen) {
       const base = d.base != null ? Number(d.base) : aperturas[d.sesion_odoo] ?? 0;
       const turno = calcularTurno(d, ajustes, ventas);
       const adicional = Number(d.adicional_turno) || 0;
+      const totalTurno = turno.valor + turno.comision + adicional;
+      const medioPago = d.turno_pagado ? d.medio_pago_turno || null : null;
+      // El turno pagado en efectivo salió de la plata de ese día.
+      const turnoEfectivo = medioPago === "efectivo" ? totalTurno : 0;
       return {
         ids: d.ids,
         fecha,
@@ -98,14 +107,16 @@ async function resumen(env, origen) {
         sesion: d.sesion_odoo,
         contado: Number(d.contado),
         base,
-        aRecoger: Math.max(0, Number(d.contado) - base),
+        turnoEfectivo,
+        aRecoger: Math.max(0, Number(d.contado) - base - turnoEfectivo),
         recogido: !!d.recogido,
         recogidoEn: d.recogido_en,
         valorTurno: turno.valor,
         ventaDia: turno.venta,
         comision: turno.comision,
         adicional,
-        totalTurno: turno.valor + turno.comision + adicional,
+        totalTurno,
+        medioPago,
         turnoPagado: !!d.turno_pagado,
         turnoPagadoEn: d.turno_pagado_en,
       };
@@ -123,7 +134,7 @@ export default async function handler(req, res) {
     }
     if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
 
-    const { contrasena, accion, ids, recogido, pagado, valor, adicional, ajustes } = req.body || {};
+    const { contrasena, accion, ids, recogido, pagado, medio, valor, adicional, ajustes } = req.body || {};
     if (contrasena !== env.VITE_APP_PASSWORD) {
       return res.status(401).json({ error: "Contraseña de administrador incorrecta." });
     }
@@ -138,8 +149,12 @@ export default async function handler(req, res) {
 
     if (accion === "turno") {
       if (!ids?.length) return res.status(400).json({ error: "Falta el turno." });
+      if (pagado && !MEDIOS_PAGO.includes(medio)) {
+        return res.status(400).json({ error: "Elige si el turno se paga por Nequi o en efectivo." });
+      }
       await marcarTurno(env, ids, {
         pagado: pagado === undefined ? undefined : !!pagado,
+        medio: pagado ? medio : undefined,
         valor: valor === undefined ? undefined : Number(valor) || 0,
         adicional: adicional === undefined ? undefined : Number(adicional) || 0,
       });
@@ -160,6 +175,10 @@ export default async function handler(req, res) {
 
     res.status(400).json({ error: "Acción desconocida." });
   } catch (err) {
-    res.status(500).json({ error: String(err.message || err) });
+    const mensaje = String(err.message || err);
+    if (mensaje.includes("medio_pago_turno")) {
+      return res.status(500).json({ error: "Falta crear la columna del medio de pago en Supabase: corre sql/2026-10-16-medio-pago-turno.sql en el SQL Editor." });
+    }
+    res.status(500).json({ error: mensaje });
   }
 }
