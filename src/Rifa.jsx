@@ -195,7 +195,7 @@ function RifaCliente() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white">
       <div className="max-w-md mx-auto px-4 py-6 flex flex-col gap-5">
-        <Encabezado subtitulo={paso === "factura" ? `Por cada ${formatoCOP(config.valorBoleta)} de compra te llevas un número para participar.` : null} />
+        <Encabezado subtitulo={paso === "factura" ? `Por cada ${formatoCOP(config.valorBoleta)} en compras te llevas un número para participar.` : null} />
 
         {paso === "factura" && (
           <>
