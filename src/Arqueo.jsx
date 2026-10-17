@@ -711,7 +711,7 @@ function PanelAdmin({ onAjustesGuardados }) {
         ) : (
           <div className="flex flex-col gap-1.5">
             {porRecoger.map((d) => (
-              <div key={d.ids[0]} className="flex items-center gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
+              <div key={d.ids[0]} className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm bg-gray-50 rounded-lg px-3 py-2">
                 <div className="flex-1 min-w-0">
                   <div className="font-medium">{fechaLarga(d.fecha)} <span className="font-normal text-gray-400">· {d.responsable}</span></div>
                   <div className="text-xs text-gray-400 tabular-nums">
@@ -719,8 +719,14 @@ function PanelAdmin({ onAjustesGuardados }) {
                     {d.turnoEfectivo > 0 && <span className="text-amber-700"> − turno en efectivo {formatoCOP(d.turnoEfectivo)}</span>}
                   </div>
                 </div>
-                <span className="tabular-nums font-semibold">{formatoCOP(d.aRecoger)}</span>
-                <BotonEstado listo={false} textoPendiente="Pendiente" onClick={() => accion({ accion: "recogido", ids: d.ids, recogido: true })} />
+                <div className="flex items-center gap-2 justify-end">
+                  <span className="tabular-nums font-semibold mr-auto sm:mr-0">{formatoCOP(d.aRecoger)}</span>
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap bg-amber-50 text-amber-700 border-amber-300">Pendiente</span>
+                  <button
+                    onClick={() => accion({ accion: "recogido", ids: d.ids, recogido: true })}
+                    className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-700 hover:bg-emerald-800 text-white whitespace-nowrap"
+                  >Recoger</button>
+                </div>
               </div>
             ))}
           </div>
