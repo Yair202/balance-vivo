@@ -21,7 +21,7 @@
  */
 import {
   obtenerAjustes, guardarAjustes, responsablesUsados,
-  listarArqueosAdmin, marcarRecogido, marcarTurno, congelarTurno,
+  listarArqueosAdmin, marcarRecogido, marcarTurno, congelarTurno, obtenerMediosTurno,
 } from "../scripts/lib/supabase.mjs";
 import { obtenerAperturas } from "../scripts/lib/valor-teorico.mjs";
 
@@ -70,7 +70,9 @@ const MEDIOS_PAGO = ["nequi", "efectivo"];
 const origenDe = (req) => `${req.headers["x-forwarded-proto"] || "https"}://${req.headers.host}`;
 
 async function resumen(env, origen) {
-  const [ajustes, arqueos, ventas] = await Promise.all([obtenerAjustes(env), listarArqueosAdmin(env), ventasPorDia(origen)]);
+  const [ajustes, arqueos, ventas, medios] = await Promise.all([
+    obtenerAjustes(env), listarArqueosAdmin(env), ventasPorDia(origen), obtenerMediosTurno(env),
+  ]);
   const dias = agruparPorSesion(arqueos);
 
   // Arqueos viejos (de antes de registrar la base): la base es el saldo de
@@ -97,7 +99,7 @@ async function resumen(env, origen) {
       const turno = calcularTurno(d, ajustes, ventas);
       const adicional = Number(d.adicional_turno) || 0;
       const totalTurno = turno.valor + turno.comision + adicional;
-      const medioPago = d.turno_pagado ? d.medio_pago_turno || null : null;
+      const medioPago = d.turno_pagado ? d.ids.map((id) => medios[id]).find(Boolean) || null : null;
       // El turno pagado en efectivo salió de la plata de ese día.
       const turnoEfectivo = medioPago === "efectivo" ? totalTurno : 0;
       return {
@@ -175,10 +177,6 @@ export default async function handler(req, res) {
 
     res.status(400).json({ error: "Acción desconocida." });
   } catch (err) {
-    const mensaje = String(err.message || err);
-    if (mensaje.includes("medio_pago_turno")) {
-      return res.status(500).json({ error: "Falta crear la columna del medio de pago en Supabase: corre sql/2026-10-16-medio-pago-turno.sql en el SQL Editor." });
-    }
-    res.status(500).json({ error: mensaje });
+    res.status(500).json({ error: String(err.message || err) });
   }
 }

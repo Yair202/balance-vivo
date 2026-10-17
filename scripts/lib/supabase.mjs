@@ -146,12 +146,33 @@ export async function marcarRecogido(env, ids, recogido) {
   });
 }
 
+// Medio de pago de cada turno pagado ("nequi" | "efectivo"), por id de arqueo.
+// Vive en la tabla `ajustes` (clave "medios_turno") para no tener que agregar
+// una columna nueva a `arqueos`.
+export async function obtenerMediosTurno(env) {
+  const filas = await supaFetch(env, "ajustes?clave=eq.medios_turno");
+  return filas[0]?.valor || {};
+}
+
+async function guardarMediosTurno(env, ids, medio) {
+  const medios = await obtenerMediosTurno(env);
+  for (const id of ids) {
+    if (medio) medios[id] = medio;
+    else delete medios[id];
+  }
+  await supaFetch(env, "ajustes?on_conflict=clave", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ clave: "medios_turno", valor: medios, actualizado_en: new Date().toISOString() }),
+  });
+}
+
 export async function marcarTurno(env, ids, { pagado, valor, adicional, medio }) {
   const cambios = {};
   if (pagado !== undefined) {
+    await guardarMediosTurno(env, ids, pagado ? medio : null);
     cambios.turno_pagado = pagado;
     cambios.turno_pagado_en = pagado ? new Date().toISOString() : null;
-    cambios.medio_pago_turno = pagado ? medio : null;
     // Si se des-marca, la comisión vuelve a calcularse con el % y la venta actuales.
     if (!pagado) cambios.comision_turno = null;
   }
