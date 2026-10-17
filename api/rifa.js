@@ -177,6 +177,11 @@ async function admin(env, req, res) {
   }
   if (accion === "borrar") {
     if (!id) return res.status(400).json({ error: "Falta el registro." });
+    // Segunda clave solo para borrar, contra borrados accidentales. Se puede
+    // cambiar con la variable RIFA_CLAVE_BORRAR en Vercel.
+    if (String(req.body?.claveBorrar || "") !== (env.RIFA_CLAVE_BORRAR || "1234")) {
+      return res.status(403).json({ error: "Clave para borrar incorrecta. No se borró nada." });
+    }
     await borrarRegistroRifa(env, id); // sus números quedan libres otra vez
     return res.status(200).json({ ok: true });
   }

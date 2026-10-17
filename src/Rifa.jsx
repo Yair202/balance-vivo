@@ -457,9 +457,11 @@ function RifaAdmin() {
 
   const borrar = async (r) => {
     const numeros = (r.rifa_boletas || []).map((b) => formatoNumero(b.numero)).join(", ");
-    if (!window.confirm(`¿Borrar el registro de ${r.nombre} (factura ${r.factura})?\nSus números (${numeros}) quedan libres otra vez.`)) return;
+    const claveBorrar = window.prompt(`¿Borrar el registro de ${r.nombre} (factura ${r.factura})?\nSus números (${numeros}) quedan libres otra vez.\n\nEscribe la clave para borrar:`);
+    if (claveBorrar === null) return;
+    setError("");
     try {
-      await llamarApi({ accion: "borrar", contrasena: clave, id: r.id });
+      await llamarApi({ accion: "borrar", contrasena: clave, id: r.id, claveBorrar: claveBorrar.trim() });
       await cargar();
     } catch (e) { setError(e.message); }
   };
