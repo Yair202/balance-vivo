@@ -199,7 +199,7 @@ function RifaCliente() {
 
         {paso === "factura" && (
           <>
-            {(config.premio || config.fechaSorteo || config.fotoVersion) && (
+            {(config.premio || config.fechaSorteo || config.fotoVersion || config.mensaje) && (
               <div className="rounded-2xl bg-white border border-pink-200 p-4 text-center shadow-sm">
                 {config.fotoVersion && (
                   <img
@@ -209,6 +209,7 @@ function RifaCliente() {
                 )}
                 {config.premio && <p className="text-base font-semibold text-pink-700 flex items-center justify-center gap-2"><Gift size={18} />{config.premio}</p>}
                 {config.fechaSorteo && <p className="text-sm text-gray-500 mt-1">Sorteo: {fechaCorta(config.fechaSorteo)}</p>}
+                {config.mensaje && <p className="text-sm text-gray-700 mt-3 pt-3 border-t border-pink-100 whitespace-pre-line text-left">{config.mensaje}</p>}
               </div>
             )}
             <form onSubmit={verificar} className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm flex flex-col gap-4">
@@ -543,6 +544,16 @@ function RifaAdmin() {
               </label>
             ))}
           </div>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs text-gray-500">Mensaje para los clientes (lo ven al registrarse, debajo del premio)</span>
+            <textarea
+              rows={3} maxLength={1000} value={borrador.mensaje ?? ""}
+              onChange={(e) => setBorrador({ ...borrador, mensaje: e.target.value })}
+              placeholder="Ej. ¡Gracias por comprar en P&P! El sorteo se hará en vivo por Instagram."
+              className="border border-gray-300 rounded-lg px-2.5 py-1.5 resize-y"
+            />
+            <span className="text-xs text-gray-400 text-right">{(borrador.mensaje ?? "").length} / 1000</span>
+          </label>
           <div className="flex gap-2 justify-end">
             <button onClick={() => { setBorrador(ajustes); setVerAjustes(false); }} className="text-xs font-semibold text-gray-500 border border-gray-300 rounded-lg px-3 py-1.5">Cancelar</button>
             <button onClick={guardarAjustes} className="text-xs font-semibold text-white bg-emerald-700 rounded-lg px-3 py-1.5">Guardar</button>

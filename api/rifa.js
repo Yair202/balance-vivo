@@ -10,7 +10,7 @@
  * azar entre los libres (000–999). Cada factura se registra una sola vez; si
  * la vuelven a escribir (con el total correcto) se le muestran sus números.
  *
- *   GET  -> datos públicos de la rifa (valor por número, fechas, premio)
+ *   GET  -> datos públicos de la rifa (valor por número, fechas, premio, mensaje)
  *   GET ?foto=1 -> la foto del premio (imagen)
  *   POST { accion: "verificar", factura, total }
  *   POST { accion: "registrar", factura, total, nombre, celular, cumple,
@@ -131,6 +131,7 @@ async function admin(env, req, res) {
       fin: fechaValida(ajustes?.fin),
       fechaSorteo: fechaValida(ajustes?.fechaSorteo),
       premio: String(ajustes?.premio || "").slice(0, 200),
+      mensaje: String(ajustes?.mensaje || "").trim().slice(0, 1000),
     });
     return res.status(200).json({ ok: true });
   }
@@ -167,8 +168,8 @@ export default async function handler(req, res) {
     }
     if (req.method === "GET") {
       const [ajustes, ocupados] = await Promise.all([obtenerAjustesRifa(env), numerosRifaOcupados(env)]);
-      const { valorBoleta, inicio, fin, fechaSorteo, premio, totalNumeros, fotoVersion } = ajustes;
-      return res.status(200).json({ valorBoleta, inicio, fin, fechaSorteo, premio, fotoVersion: fotoVersion || null, disponibles: totalNumeros - ocupados.size });
+      const { valorBoleta, inicio, fin, fechaSorteo, premio, mensaje, totalNumeros, fotoVersion } = ajustes;
+      return res.status(200).json({ valorBoleta, inicio, fin, fechaSorteo, premio, mensaje: mensaje || "", fotoVersion: fotoVersion || null, disponibles: totalNumeros - ocupados.size });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
     const accion = req.body?.accion;
