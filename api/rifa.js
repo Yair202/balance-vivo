@@ -6,8 +6,9 @@
  * El cliente escribe el número de su factura (Ref. venta del POS) y el total
  * que pagó. Se busca la venta EN VIVO en Odoo: el total tiene que coincidir
  * (así nadie registra la factura de otro adivinando el número, que es
- * consecutivo). Por cada `valorBoleta` de la compra se le asigna un número al
- * azar entre los libres (000–999). Cada factura se registra una sola vez; si
+ * consecutivo). Por cada `valorBoleta` de la compra (o, en modo "tramos", según
+ * el tramo más alto que alcance) se le asigna un número al azar entre los
+ * libres (000–999). Cada factura se registra una sola vez; si
  * la vuelven a escribir (con el total correcto) se le muestran sus números.
  *
  *   GET  -> datos públicos de la rifa (valor por número, fechas, premio, mensaje)
@@ -56,8 +57,30 @@ async function validarFactura(env, ajustes, factura, total) {
   const fecha = fechaBogota(orden.fechaUTC);
   if (ajustes.inicio && fecha < ajustes.inicio) throw new ErrorCliente("Esa compra es de antes de que empezara la rifa.");
   if (ajustes.fin && fecha > ajustes.fin) throw new ErrorCliente("Esa compra es de después del cierre de la rifa.");
-  const cantidad = Math.floor(orden.monto / ajustes.valorBoleta);
-  return { ...orden, fecha, cantidad };
+  return { ...orden, fecha, cantidad: numerosPorMonto(orden.monto, ajustes) };
+}
+
+const usaTramos = (ajustes) => ajustes.modo === "tramos" && ajustes.tramos?.length > 0;
+
+// Cuántos números da una factura: proporcional (1 por cada valorBoleta) o, en
+// modo tramos, los del tramo más alto que alcanza (no se acumulan).
+export function numerosPorMonto(monto, ajustes) {
+  if (!usaTramos(ajustes)) return Math.floor(monto / ajustes.valorBoleta);
+  const alcanzados = ajustes.tramos.filter((t) => monto >= t.desde);
+  return alcanzados.length ? alcanzados[alcanzados.length - 1].numeros : 0;
+}
+
+const compraMinima = (ajustes) => (usaTramos(ajustes) ? ajustes.tramos[0].desde : ajustes.valorBoleta);
+
+// Deja los tramos limpios y ordenados por monto; descarta filas incompletas o repetidas.
+export function normalizarTramos(tramos) {
+  const porMonto = new Map();
+  for (const t of Array.isArray(tramos) ? tramos.slice(0, 20) : []) {
+    const desde = Math.round(Number(t?.desde));
+    const numeros = Math.round(Number(t?.numeros));
+    if (desde >= 1000 && numeros >= 1 && numeros <= 50) porMonto.set(desde, numeros);
+  }
+  return [...porMonto].sort((a, b) => a[0] - b[0]).map(([desde, numeros]) => ({ desde, numeros }));
 }
 
 async function publico(env, req, res) {
@@ -81,7 +104,7 @@ async function publico(env, req, res) {
     const cumpleValido = /^\d{4}-\d{2}-\d{2}$/.test(cumple || "") ? cumple : null;
 
     const orden = await validarFactura(env, ajustes, factura, total);
-    if (orden.cantidad < 1) throw new ErrorCliente(`Por cada compra de ${formato(ajustes.valorBoleta)} recibes un número; esta factura no alcanza.`);
+    if (orden.cantidad < 1) throw new ErrorCliente(`Esta factura no alcanza: se necesita una compra mínima de ${formato(compraMinima(ajustes))} para recibir un número.`);
 
     const registro = await crearRegistroRifa(env, {
       factura: orden.numero,
@@ -123,7 +146,14 @@ async function admin(env, req, res) {
   if (accion === "guardarAjustes") {
     const fechaValida = (f) => (/^\d{4}-\d{2}-\d{2}$/.test(f || "") ? f : "");
     const actual = await obtenerAjustesRifa(env);
+    const modo = ajustes?.modo === "tramos" ? "tramos" : "proporcional";
+    const tramos = normalizarTramos(ajustes?.tramos);
+    if (modo === "tramos" && !tramos.length) {
+      return res.status(400).json({ error: "Agrega al menos un tramo válido (compra desde $1.000 y entre 1 y 50 números)." });
+    }
     await guardarAjustesRifa(env, {
+      modo,
+      tramos,
       fotoVersion: actual.fotoVersion || null, // la foto se cambia aparte (guardarFoto)
       valorBoleta: Math.max(1000, Number(ajustes?.valorBoleta) || 130000),
       totalNumeros: Math.min(10000, Math.max(10, Number(ajustes?.totalNumeros) || 1000)),
@@ -169,7 +199,8 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       const [ajustes, ocupados] = await Promise.all([obtenerAjustesRifa(env), numerosRifaOcupados(env)]);
       const { valorBoleta, inicio, fin, fechaSorteo, premio, mensaje, totalNumeros, fotoVersion } = ajustes;
-      return res.status(200).json({ valorBoleta, inicio, fin, fechaSorteo, premio, mensaje: mensaje || "", fotoVersion: fotoVersion || null, disponibles: totalNumeros - ocupados.size });
+      const reglas = usaTramos(ajustes) ? { modo: "tramos", tramos: ajustes.tramos } : { modo: "proporcional", tramos: [] };
+      return res.status(200).json({ valorBoleta, ...reglas, inicio, fin, fechaSorteo, premio, mensaje: mensaje || "", fotoVersion: fotoVersion || null, disponibles: totalNumeros - ocupados.size });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
     const accion = req.body?.accion;

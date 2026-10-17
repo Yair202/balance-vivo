@@ -11,6 +11,12 @@ import logoCorona from "./assets/logo-corona.jpg";
 
 const formatoCOP = (v) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(v || 0);
 const formatoNumero = (n) => String(n).padStart(3, "0");
+const palabraNumeros = (n) => `${n} ${n === 1 ? "número" : "números"}`;
+// Modo "tramos": cada factura recibe los números del tramo más alto que alcanza
+// (ver numerosPorMonto en api/rifa.js). Si no, 1 número por cada valorBoleta.
+const usaTramos = (c) => c?.modo === "tramos" && c.tramos?.length > 0;
+const compraMinima = (c) => (usaTramos(c) ? c.tramos[0].desde : c?.valorBoleta);
+const TRAMOS_EJEMPLO = [{ desde: 100000, numeros: 1 }, { desde: 170000, numeros: 2 }, { desde: 200000, numeros: 3 }, { desde: 300000, numeros: 6 }];
 const fechaCorta = (f) => f ? new Date(`${f}T12:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }) : "";
 // El año del cumpleaños es opcional: sin año se guarda como 1900 y se muestra
 // solo día y mes.
@@ -100,7 +106,9 @@ function Reglamento({ config }) {
   return (
     <div className="text-xs text-gray-600 flex flex-col gap-1.5">
       <p>1. Participan las compras hechas en {NOMBRE_TIENDA}{config.inicio ? ` desde el ${fechaCorta(config.inicio)}` : ""}{config.fin ? ` hasta el ${fechaCorta(config.fin)}` : ""}.</p>
-      <p>2. Por cada {formatoCOP(config.valorBoleta)} en una misma factura recibes un número. Los números se asignan al azar y no se repiten.</p>
+      <p>2. {usaTramos(config)
+        ? `Según el total de una misma factura recibes: ${config.tramos.map((t) => `desde ${formatoCOP(t.desde)}, ${palabraNumeros(t.numeros)}`).join("; ")}.`
+        : `Por cada ${formatoCOP(config.valorBoleta)} en una misma factura recibes un número.`} Los números se asignan al azar y no se repiten.</p>
       <p>3. Cada factura se puede registrar una sola vez.</p>
       <p>4. {config.fechaSorteo ? `El sorteo se hará el ${fechaCorta(config.fechaSorteo)}` : "La fecha del sorteo se anunciará en la tienda"} y el ganador se contactará al celular registrado.{config.premio ? ` Premio: ${config.premio}.` : ""}</p>
       <p>5. Para reclamar el premio se debe presentar el tiquete de compra de la factura con la que se obtuvo el número ganador.</p>
@@ -150,7 +158,7 @@ function RifaCliente() {
         setResultado({ ...r, yaRegistrado: true });
         setPaso("listo");
       } else if (r.cantidad < 1) {
-        setError(`Tu compra de ${formatoCOP(r.monto)} no alcanza: por cada ${formatoCOP(config?.valorBoleta)} en una misma factura recibes un número.`);
+        setError(`Tu compra de ${formatoCOP(r.monto)} no alcanza: se necesita una compra mínima de ${formatoCOP(compraMinima(config))} en una misma factura para recibir un número.`);
       } else {
         setCompra(r);
         setPaso("datos");
@@ -195,7 +203,9 @@ function RifaCliente() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white">
       <div className="max-w-md mx-auto px-4 py-6 flex flex-col gap-5">
-        <Encabezado subtitulo={paso === "factura" ? `Por cada ${formatoCOP(config.valorBoleta)} en compras te llevas un número para participar.` : null} />
+        <Encabezado subtitulo={paso !== "factura" ? null : usaTramos(config)
+          ? `Desde ${formatoCOP(compraMinima(config))} en compras te llevas números para participar. ¡Entre más compras, más números!`
+          : `Por cada ${formatoCOP(config.valorBoleta)} en compras te llevas un número para participar.`} />
 
         {paso === "factura" && (
           <>
@@ -210,6 +220,19 @@ function RifaCliente() {
                 {config.premio && <p className="text-base font-semibold text-pink-700 flex items-center justify-center gap-2"><Gift size={18} />{config.premio}</p>}
                 {config.fechaSorteo && <p className="text-sm text-gray-500 mt-1">Sorteo: {fechaCorta(config.fechaSorteo)}</p>}
                 {config.mensaje && <p className="text-sm text-gray-700 mt-3 pt-3 border-t border-pink-100 whitespace-pre-line text-left">{config.mensaje}</p>}
+              </div>
+            )}
+            {usaTramos(config) && (
+              <div className="rounded-2xl bg-white border border-pink-200 p-4 shadow-sm">
+                <p className="text-sm font-semibold text-gray-700 mb-2 text-center">Así se entregan los números</p>
+                <div className="flex flex-col divide-y divide-pink-100">
+                  {config.tramos.map((t) => (
+                    <div key={t.desde} className="flex justify-between py-1.5 text-sm">
+                      <span className="text-gray-600">Compras desde {formatoCOP(t.desde)}</span>
+                      <span className="font-semibold text-pink-700">{palabraNumeros(t.numeros)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <form onSubmit={verificar} className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm flex flex-col gap-4">
@@ -525,9 +548,46 @@ function RifaAdmin() {
               <span className="text-xs text-gray-400">Se guarda apenas la eliges, sin necesidad de darle Guardar.</span>
             </div>
           </div>
+          <div className="flex flex-col gap-2 text-sm pb-3 border-b border-gray-100">
+            <span className="text-xs text-gray-500">¿Cómo se entregan los números?</span>
+            <div className="flex flex-wrap gap-2">
+              {[["proporcional", "1 número por cada valor de compra"], ["tramos", "Por tramos de compra"]].map(([modo, etiqueta]) => {
+                const activo = (borrador.modo === "tramos" ? "tramos" : "proporcional") === modo;
+                return (
+                  <button
+                    key={modo}
+                    onClick={() => setBorrador({ ...borrador, modo, ...(modo === "tramos" && !borrador.tramos?.length ? { tramos: TRAMOS_EJEMPLO } : {}) })}
+                    className={`text-xs font-semibold rounded-lg px-3 py-1.5 border ${activo ? "bg-emerald-700 border-emerald-700 text-white" : "border-gray-300 text-gray-600"}`}
+                  >{etiqueta}</button>
+                );
+              })}
+            </div>
+            {borrador.modo === "tramos" && (
+              <div className="flex flex-col gap-2 max-w-md">
+                <div className="grid grid-cols-[1fr_7rem_2rem] gap-2 text-xs text-gray-500">
+                  <span>Compra desde ($)</span><span>Números</span><span />
+                </div>
+                {(borrador.tramos || []).map((t, i) => {
+                  const cambiar = (campo, valor) => setBorrador({ ...borrador, tramos: borrador.tramos.map((x, j) => (j === i ? { ...x, [campo]: valor } : x)) });
+                  return (
+                    <div key={i} className="grid grid-cols-[1fr_7rem_2rem] gap-2 items-center">
+                      <input type="number" min="1000" step="1000" value={t.desde ?? ""} onChange={(e) => cambiar("desde", e.target.value)} className="border border-gray-300 rounded-lg px-2.5 py-1.5" />
+                      <input type="number" min="1" max="50" value={t.numeros ?? ""} onChange={(e) => cambiar("numeros", e.target.value)} className="border border-gray-300 rounded-lg px-2.5 py-1.5" />
+                      <button onClick={() => setBorrador({ ...borrador, tramos: borrador.tramos.filter((_, j) => j !== i) })} title="Quitar tramo" className="text-gray-400 hover:text-red-600 flex justify-center"><Trash2 size={15} /></button>
+                    </div>
+                  );
+                })}
+                <button
+                  onClick={() => setBorrador({ ...borrador, tramos: [...(borrador.tramos || []), { desde: "", numeros: "" }] })}
+                  className="self-start text-xs font-semibold text-emerald-700 hover:underline"
+                >+ Agregar tramo</button>
+                <span className="text-xs text-gray-400">Cada factura recibe los números del tramo más alto que alcanza (no se suman). Ej.: con estos tramos, una compra de $250.000 da los números del tramo de $200.000.</span>
+              </div>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
             {[
-              ["valorBoleta", "Valor de compra por número", "number"],
+              ...(borrador.modo === "tramos" ? [] : [["valorBoleta", "Valor de compra por número", "number"]]),
               ["totalNumeros", "Cantidad de números (desde 000)", "number"],
               ["premio", "Premio", "text"],
               ["inicio", "Cuentan compras desde", "date"],
