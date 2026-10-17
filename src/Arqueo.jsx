@@ -80,6 +80,7 @@ export default function Arqueo() {
   useEffect(() => { try { sessionStorage.setItem(NOMBRE_STORAGE, responsable); } catch {} }, [responsable]);
 
   const [sesion, setSesion] = useState(null);
+  const [actualizadoEn, setActualizadoEn] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [cantidades, setCantidades] = useState(() => Array(DENOMINACIONES.length).fill(""));
@@ -112,18 +113,22 @@ export default function Arqueo() {
     }
   };
 
-  const traerValorTeorico = async () => {
-    setCargando(true);
-    setError("");
+  // `silencioso`: refresco automático de fondo, sin mostrar "Consultando..." ni
+  // borrar lo que ya se ve si falla la conexión un momento.
+  const traerValorTeorico = async (silencioso = false) => {
+    if (!silencioso) { setCargando(true); setError(""); }
     try {
       const resp = await fetch("/api/valor-teorico-caja", { cache: "no-store" });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "No se pudo traer el valor del sistema.");
       setSesion(data);
+      setActualizadoEn(new Date());
+      return data;
     } catch (e) {
-      setError(String(e.message || e));
+      if (!silencioso) setError(String(e.message || e));
+      return null;
     } finally {
-      setCargando(false);
+      if (!silencioso) setCargando(false);
     }
   };
 
@@ -145,6 +150,15 @@ export default function Arqueo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autenticado]);
 
+  // Si se sigue vendiendo en efectivo mientras la pantalla está abierta, el
+  // "Debe haber" cambia: se vuelve a consultar solo cada minuto.
+  useEffect(() => {
+    if (!autenticado) return undefined;
+    const t = setInterval(() => traerValorTeorico(true), 60_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autenticado]);
+
   const totalContado = useMemo(
     () => DENOMINACIONES.reduce((s, d, i) => s + d.valor * (Number(cantidades[i]) || 0), 0),
     [cantidades]
@@ -154,7 +168,9 @@ export default function Arqueo() {
   const teorico = sesion?.teorico || 0;
   const diferencia = totalAjustado - teorico;
   const CUADRA_TOLERANCIA = 50;
-  const estadoDiferencia = Math.abs(diferencia) < CUADRA_TOLERANCIA ? "cuadra" : diferencia < 0 ? "faltante" : "sobrante";
+  // Sin nada contado todavía no hay faltante que mostrar: solo "falta contar".
+  const estadoDiferencia = totalContado === 0 ? "sinContar"
+    : Math.abs(diferencia) < CUADRA_TOLERANCIA ? "cuadra" : diferencia < 0 ? "faltante" : "sobrante";
   const paraGuardar = Math.max(0, totalContado - (Number(base) || 0));
 
   const cambiarCantidad = (i, v) => {
@@ -192,9 +208,17 @@ export default function Arqueo() {
 
   const guardarArqueo = async () => {
     if (!responsable.trim()) { setErrorGuardar("Elige el nombre de quién hace el arqueo."); return; }
+    if (totalContado === 0) { setErrorGuardar("Primero cuenta el efectivo del cajón."); return; }
     setGuardando(true);
     setErrorGuardar("");
     try {
+      // Último chequeo contra Odoo: si hubo una venta en efectivo después de la
+      // última consulta, se avisa en vez de guardar con un "Debe haber" viejo.
+      const fresco = await traerValorTeorico(true);
+      if (fresco?.hayAbierta && Math.abs((fresco.teorico || 0) - teorico) >= CUADRA_TOLERANCIA) {
+        setErrorGuardar(`El valor del sistema cambió a ${formatoCOP(fresco.teorico)} (hubo un movimiento en caja). Revisa la diferencia y vuelve a darle Guardar.`);
+        return;
+      }
       const resp = await fetch("/api/arqueo-guardar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -274,7 +298,7 @@ export default function Arqueo() {
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-sm font-semibold flex items-center gap-2"><Calculator size={16} className="text-emerald-700" />Valor que debe haber en caja (según el sistema)</h2>
-              <button onClick={traerValorTeorico} disabled={cargando} className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline disabled:opacity-50">
+              <button onClick={() => traerValorTeorico()} disabled={cargando} className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline disabled:opacity-50">
                 <RefreshCw size={13} className={cargando ? "animate-spin" : ""} />Actualizar
               </button>
             </div>
@@ -294,6 +318,7 @@ export default function Arqueo() {
                 <div className="text-3xl font-bold tabular-nums text-emerald-800">{formatoCOP(sesion.teorico)}</div>
                 <p className="text-xs text-gray-400 mt-1">
                   Sesión {sesion.sesion} · {sesion.cajero} · Apertura: {formatoCOP(sesion.saldoApertura)} + Ventas en efectivo: {formatoCOP(sesion.totalTransacciones)}
+                  {actualizadoEn && ` · Actualizado ${actualizadoEn.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })} (se actualiza solo cada minuto)`}
                 </p>
               </>
             )}
@@ -387,7 +412,7 @@ export default function Arqueo() {
 
           <div
             className={`rounded-2xl border p-5 shadow-sm ${
-              !sesion?.hayAbierta ? "border-gray-200 bg-white" :
+              !sesion?.hayAbierta || estadoDiferencia === "sinContar" ? "border-gray-200 bg-white" :
               estadoDiferencia === "cuadra" ? "border-emerald-300 bg-emerald-50" :
               estadoDiferencia === "faltante" ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"
             }`}
@@ -404,11 +429,11 @@ export default function Arqueo() {
               <div>
                 <div className="text-xs text-gray-500">Diferencia</div>
                 <div className={`text-lg font-bold tabular-nums ${
-                  !sesion?.hayAbierta ? "text-gray-400" :
+                  !sesion?.hayAbierta || estadoDiferencia === "sinContar" ? "text-gray-400" :
                   estadoDiferencia === "cuadra" ? "text-emerald-700" :
                   estadoDiferencia === "faltante" ? "text-red-600" : "text-amber-700"
                 }`}>
-                  {sesion?.hayAbierta ? `${diferencia >= 0 ? "+" : ""}${formatoCOP(diferencia)}` : "—"}
+                  {sesion?.hayAbierta && estadoDiferencia !== "sinContar" ? `${diferencia >= 0 ? "+" : ""}${formatoCOP(diferencia)}` : "—"}
                 </div>
               </div>
             </div>
@@ -416,6 +441,7 @@ export default function Arqueo() {
               <p className={`text-center text-sm font-semibold mt-3 flex items-center justify-center gap-1.5 ${
                 estadoDiferencia === "cuadra" ? "text-emerald-700" : estadoDiferencia === "faltante" ? "text-red-600" : "text-amber-700"
               }`}>
+                {estadoDiferencia === "sinContar" && <span className="text-gray-500 font-normal">Cuenta todo el efectivo del cajón (incluida la base) para ver si cuadra.</span>}
                 {estadoDiferencia === "cuadra" && <><CheckCircle2 size={15} />Cuadra ✓ — puedes escribir este total en el cierre del sistema.</>}
                 {estadoDiferencia === "faltante" && <><ShieldAlert size={15} />Tienes un faltante de {formatoCOP(Math.abs(diferencia))} — revisa el conteo antes de cerrar en el sistema.</>}
                 {estadoDiferencia === "sobrante" && <><ShieldAlert size={15} />Te está sobrando {formatoCOP(diferencia)} — revisa qué pudo haber pasado.</>}
