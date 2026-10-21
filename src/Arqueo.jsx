@@ -151,19 +151,25 @@ export default function Arqueo() {
   const [errorGuardar, setErrorGuardar] = useState("");
 
   const [empleados, setEmpleados] = useState([]);
-  // Base que se deja en caja para el día siguiente — por defecto la misma con
-  // la que abrió la sesión en Odoo. No se recoge: lo que se guarda es contado − base.
+  // Base que se deja en caja para el día siguiente — la que fije el administrador
+  // en Ajustes; si no fijó ninguna, la misma con la que abrió la sesión en Odoo.
+  // No se recoge: lo que se guarda es contado − base.
   const [base, setBase] = useState("");
   const [baseTocada, setBaseTocada] = useState(false);
+  const [baseAdmin, setBaseAdmin] = useState(0);
   useEffect(() => {
-    if (!baseTocada && sesion?.hayAbierta) setBase(String(sesion.saldoApertura || 0));
-  }, [sesion, baseTocada]);
+    if (baseAdmin > 0) setBase(String(baseAdmin));
+    else if (!baseTocada && sesion?.hayAbierta) setBase(String(sesion.saldoApertura || 0));
+  }, [sesion, baseTocada, baseAdmin]);
 
   const traerEmpleados = async () => {
     try {
       const resp = await fetch("/api/arqueo-admin", { cache: "no-store" });
       const data = await resp.json();
-      if (resp.ok) setEmpleados(data);
+      if (resp.ok) {
+        setEmpleados(Array.isArray(data) ? data : data.empleados || []);
+        setBaseAdmin(Number(data.baseCaja) || 0);
+      }
     } catch {
       // sin lista: el select queda solo con el nombre ya elegido
     }
@@ -416,11 +422,14 @@ export default function Arqueo() {
               <span className="tabular-nums">{formatoCOP(totalContado)}</span>
             </div>
             <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100 text-sm">
-              <span className="text-gray-600">Base que se deja en caja</span>
+              <span className="text-gray-600">
+                Base que se deja en caja
+                {baseAdmin > 0 && <span className="block text-xs text-gray-400">Definida por el administrador</span>}
+              </span>
               <input
-                type="number" min="0" value={base}
+                type="number" min="0" value={base} readOnly={baseAdmin > 0}
                 onChange={(e) => { setBase(e.target.value); setBaseTocada(true); }}
-                className="w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums"
+                className={`w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums ${baseAdmin > 0 ? "bg-gray-50 text-gray-500" : ""}`}
               />
             </div>
             {composicionBase && (
@@ -1021,6 +1030,7 @@ function FormAjustes({ inicial, sugeridos, onGuardar }) {
   const [nuevo, setNuevo] = useState("");
   const [tarifas, setTarifas] = useState(() => ({ ...inicial.tarifas }));
   const [pctComision, setPctComision] = useState(() => String(inicial.pctComision ?? 0));
+  const [baseCaja, setBaseCaja] = useState(() => (inicial.baseCaja ? String(inicial.baseCaja) : ""));
   const [guardando, setGuardando] = useState(false);
   const [listo, setListo] = useState(false);
 
@@ -1033,7 +1043,7 @@ function FormAjustes({ inicial, sugeridos, onGuardar }) {
 
   const guardar = async () => {
     setGuardando(true);
-    await onGuardar({ empleados, tarifas, pctComision: Number(pctComision) || 0 });
+    await onGuardar({ empleados, tarifas, pctComision: Number(pctComision) || 0, baseCaja: Number(baseCaja) || 0 });
     setGuardando(false);
     setListo(true);
   };
@@ -1088,6 +1098,19 @@ function FormAjustes({ inicial, sugeridos, onGuardar }) {
           % de la venta total del día (ventas brutas del balance)
         </label>
         <p className="text-xs text-gray-400 mt-1.5">Aplica a los turnos pendientes; los ya pagados conservan la comisión con la que se pagaron. Con 0 no hay comisión.</p>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-gray-500 mb-1.5">Base que se deja en caja</div>
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          $
+          <input
+            type="number" min="0" step="1000" value={baseCaja} placeholder="Apertura de Odoo"
+            onChange={(e) => { setBaseCaja(e.target.value); setListo(false); }}
+            className="w-36 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums text-gray-800"
+          />
+        </label>
+        <p className="text-xs text-gray-400 mt-1.5">En el conteo aparece fija (el empleado no la puede cambiar) y la herramienta le dice qué billetes dejar. Vacío = la misma con la que abrió la caja en Odoo, y el empleado sí la puede cambiar.</p>
       </div>
 
       <button onClick={guardar} disabled={guardando} className="bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold py-2 rounded-lg disabled:opacity-50">

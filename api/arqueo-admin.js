@@ -132,7 +132,7 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       const ajustes = await obtenerAjustes(env);
       const nombres = ajustes.empleados.length ? ajustes.empleados : await responsablesUsados(env);
-      return res.status(200).json(nombres);
+      return res.status(200).json({ empleados: nombres, baseCaja: Number(ajustes.baseCaja) || 0 });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
 
@@ -171,7 +171,8 @@ export default async function handler(req, res) {
       const empleados = [...new Set((ajustes?.empleados || []).map((n) => String(n).trim()).filter(Boolean))];
       const tarifas = Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [d, Number(ajustes?.tarifas?.[d]) || 0]));
       const pctComision = Math.max(0, Number(ajustes?.pctComision) || 0);
-      await guardarAjustes(env, { empleados, tarifas, pctComision });
+      const baseCaja = Math.max(0, Number(ajustes?.baseCaja) || 0);
+      await guardarAjustes(env, { empleados, tarifas, pctComision, baseCaja });
       return res.status(200).json({ ok: true });
     }
 

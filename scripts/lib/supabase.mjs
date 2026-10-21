@@ -105,6 +105,7 @@ export async function ajustarArqueo(env, id, { notaAdmin, resuelto }) {
 const AJUSTES_DEFAULT = {
   empleados: [],
   pctComision: 0, // % sobre la venta total del día (ventas brutas del balance)
+  baseCaja: 0, // base fija que se deja en caja; 0 = la apertura de Odoo
   // Valor del turno por día de la semana (0 = domingo ... 6 = sábado).
   tarifas: { 0: 60000, 1: 55000, 2: 55000, 3: 55000, 4: 55000, 5: 55000, 6: 55000 },
 };
