@@ -28,6 +28,58 @@ const fechaBogota = (d = new Date()) => new Date(d).toLocaleDateString("en-CA", 
 const hoyISO = () => fechaBogota();
 const formatoHora = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }) : "";
 
+// Qué billetes/monedas dejar en caja para armar la base, usando solo lo contado.
+// Lo más fácil de separar es dejar un fajo completo o no tocarlo: cada
+// denominación a medias cuesta (hay que contar), así que se minimizan esas.
+// Siempre al menos 1 billete de $20.000 si hay, y sin billetes de 50k/100k
+// salvo que no haya otra forma (la base es para dar cambio).
+const UNIDAD = 50;
+function armarBase(cantidades, base) {
+  const meta = Math.floor((Number(base) || 0) / UNIDAD);
+  if (meta <= 0) return null;
+  const disp = DENOMINACIONES.map((d, i) => Math.max(0, Math.floor(Number(cantidades[i]) || 0)));
+  const i20 = DENOMINACIONES.findIndex((d) => d.valor === 20000);
+  const exigir20 = disp[i20] > 0 && meta * UNIDAD >= 20000;
+
+  const intentar = (permitirGrandes) => {
+    let costo = new Array(meta + 1).fill(Infinity);
+    costo[0] = 0;
+    const elecciones = [];
+    DENOMINACIONES.forEach((d, i) => {
+      const n = (d.valor >= 50000 && !permitirGrandes) ? 0 : disp[i];
+      const paso = d.valor / UNIDAD;
+      const kMin = i === i20 && exigir20 ? 1 : 0;
+      const nuevo = new Array(meta + 1).fill(Infinity);
+      const eleccion = new Int32Array(meta + 1);
+      for (let s = 0; s <= meta; s++) {
+        if (costo[s] === Infinity) continue;
+        for (let k = kMin; k <= n && s + k * paso <= meta; k++) {
+          const c = costo[s] + (k === 0 || k === n ? 0 : 1000 + k);
+          if (c < nuevo[s + k * paso]) { nuevo[s + k * paso] = c; eleccion[s + k * paso] = k; }
+        }
+      }
+      elecciones.push(eleccion);
+      costo = nuevo;
+    });
+    let s = meta;
+    while (s > 0 && costo[s] === Infinity) s--;
+    if (costo[s] === Infinity) return null;
+    const total = s * UNIDAD;
+    const piezas = [];
+    for (let i = DENOMINACIONES.length - 1; i >= 0; i--) {
+      const k = elecciones[i][s];
+      if (k > 0) piezas.unshift({ ...DENOMINACIONES[i], cantidad: k, todos: k === disp[i] });
+      s -= k * (DENOMINACIONES[i].valor / UNIDAD);
+    }
+    return { piezas, total };
+  };
+
+  const sinGrandes = intentar(false);
+  const res = sinGrandes && sinGrandes.total === meta * UNIDAD ? sinGrandes : (intentar(true) || sinGrandes);
+  if (!res) return null;
+  return { ...res, exacto: res.total === Number(base), sin20: !exigir20 && meta * UNIDAD >= 20000 };
+}
+
 function LoginArqueo({ onIngresar }) {
   const [clave, setClave] = useState("");
   const [error, setError] = useState(false);
@@ -172,6 +224,10 @@ export default function Arqueo() {
   const estadoDiferencia = totalContado === 0 ? "sinContar"
     : Math.abs(diferencia) < CUADRA_TOLERANCIA ? "cuadra" : diferencia < 0 ? "faltante" : "sobrante";
   const paraGuardar = Math.max(0, totalContado - (Number(base) || 0));
+  const composicionBase = useMemo(
+    () => (totalContado > 0 ? armarBase(cantidades, base) : null),
+    [cantidades, base, totalContado]
+  );
 
   const cambiarCantidad = (i, v) => {
     const copia = [...cantidades];
@@ -363,6 +419,32 @@ export default function Arqueo() {
                 className="w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums"
               />
             </div>
+            {composicionBase && (
+              <div className="mt-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
+                <p className="font-semibold text-amber-900 mb-1">Deja en caja:</p>
+                <ul className="space-y-0.5">
+                  {composicionBase.piezas.map((p) => (
+                    <li key={`${p.tipo}-${p.valor}`} className="flex justify-between gap-3 text-amber-900">
+                      <span>
+                        <span className="font-semibold tabular-nums">{p.cantidad}</span>{" "}
+                        {p.cantidad === 1 ? p.tipo.toLowerCase() : `${p.tipo.toLowerCase()}s`} de {formatoCOP(p.valor)}
+                        {p.todos && p.cantidad > 1 && <span className="text-xs text-amber-700"> (todos)</span>}
+                      </span>
+                      <span className="tabular-nums">{formatoCOP(p.valor * p.cantidad)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-amber-700 mt-1">El resto del efectivo es lo que se guarda.</p>
+                {!composicionBase.exacto && (
+                  <p className="text-xs text-red-600 mt-1">
+                    Con lo contado no se puede armar exacto {formatoCOP(Number(base))}; lo más cercano es {formatoCOP(composicionBase.total)}.
+                  </p>
+                )}
+                {composicionBase.sin20 && (
+                  <p className="text-xs text-red-600 mt-1">No hay billetes de $20.000 en lo contado.</p>
+                )}
+              </div>
+            )}
             <div className="flex justify-between pt-2 text-sm font-semibold text-emerald-800">
               <span>Para guardar (lo recoge el administrador)</span>
               <span className="tabular-nums">{formatoCOP(paraGuardar)}</span>
