@@ -32,7 +32,8 @@ const formatoHora = (iso) => iso ? new Date(iso).toLocaleTimeString("es-CO", { t
 // Lo más fácil de separar es dejar un fajo completo o no tocarlo: cada
 // denominación a medias cuesta (hay que contar), así que se minimizan esas.
 // Siempre al menos 1 billete de $20.000 si hay, y sin billetes de 50k/100k
-// salvo que no haya otra forma (la base es para dar cambio).
+// salvo que no haya otra forma (la base es para dar cambio). Las monedas de
+// $50/$100/$200 nunca van en la base (se guardan).
 const UNIDAD = 50;
 function armarBase(cantidades, base) {
   const meta = Math.floor((Number(base) || 0) / UNIDAD);
@@ -46,15 +47,18 @@ function armarBase(cantidades, base) {
     costo[0] = 0;
     const elecciones = [];
     DENOMINACIONES.forEach((d, i) => {
-      const n = (d.valor >= 50000 && !permitirGrandes) ? 0 : disp[i];
+      const esMonedaBaja = d.tipo === "Moneda" && d.valor < 500;
+      const n = esMonedaBaja || (d.valor >= 50000 && !permitirGrandes) ? 0 : disp[i];
       const paso = d.valor / UNIDAD;
       const kMin = i === i20 && exigir20 ? 1 : 0;
+      // Las monedas de $500 y $1.000 sirven para el cambio: se prefiere dejarlas todas.
+      const prefiereTodas = d.tipo === "Moneda" && !esMonedaBaja;
       const nuevo = new Array(meta + 1).fill(Infinity);
       const eleccion = new Int32Array(meta + 1);
       for (let s = 0; s <= meta; s++) {
         if (costo[s] === Infinity) continue;
         for (let k = kMin; k <= n && s + k * paso <= meta; k++) {
-          const c = costo[s] + (k === 0 || k === n ? 0 : 1000 + k);
+          const c = costo[s] + (k === 0 || k === n ? 0 : 1000 + k) + (prefiereTodas && k < n ? 5000 : 0);
           if (c < nuevo[s + k * paso]) { nuevo[s + k * paso] = c; eleccion[s + k * paso] = k; }
         }
       }
