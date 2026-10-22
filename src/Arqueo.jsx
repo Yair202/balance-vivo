@@ -728,17 +728,46 @@ const fechaLarga = (f) => {
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
 
-function BotonEstado({ listo, textoListo, textoPendiente, onClick }) {
+// Estado ya hecho (pagado / recogido) con botón "Reversar". Para no reversar
+// por error, pide otra vez la contraseña de administrador.
+function EstadoReversable({ texto, aviso, clave, onReversar }) {
+  const [abierto, setAbierto] = useState(false);
+  const [intento, setIntento] = useState("");
+  const [error, setError] = useState(false);
+  const cerrar = () => { setAbierto(false); setIntento(""); setError(false); };
+  const confirmar = (e) => {
+    e.preventDefault();
+    if (intento !== clave) { setError(true); return; }
+    cerrar();
+    onReversar();
+  };
   return (
-    <button
-      onClick={onClick}
-      className={`text-xs font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap ${
-        listo ? "bg-emerald-100 text-emerald-800 border-emerald-300" : "bg-amber-50 text-amber-700 border-amber-300"
-      }`}
-      title="Clic para cambiar"
-    >
-      {listo ? `✓ ${textoListo}` : textoPendiente}
-    </button>
+    <>
+      <span className="flex items-center gap-1.5">
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap bg-emerald-100 text-emerald-800 border-emerald-300">✓ {texto}</span>
+        {!abierto && (
+          <button onClick={() => setAbierto(true)} className="text-xs font-semibold px-2.5 py-1 rounded-full border border-red-300 text-red-600 bg-white hover:bg-red-50 whitespace-nowrap">
+            Reversar
+          </button>
+        )}
+      </span>
+      {abierto && (
+        <form onSubmit={confirmar} className="basis-full w-full rounded-lg border border-red-200 bg-red-50 p-3 flex flex-col gap-2">
+          <p className="text-xs text-red-800"><b>¿Reversar?</b> {aviso}</p>
+          <input
+            type="password" autoFocus value={intento}
+            onChange={(e) => { setIntento(e.target.value); setError(false); }}
+            placeholder="Contraseña de administrador"
+            className={`w-full border rounded-lg px-2.5 py-1.5 text-sm bg-white ${error ? "border-red-500" : "border-gray-300"}`}
+          />
+          {error && <p className="text-xs text-red-600">Contraseña incorrecta.</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={cerrar} className="flex-1 text-xs font-semibold text-gray-600 border border-gray-300 bg-white rounded-lg py-1.5">Cancelar</button>
+            <button type="submit" className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg py-1.5">Sí, reversar</button>
+          </div>
+        </form>
+      )}
+    </>
   );
 }
 
@@ -917,10 +946,14 @@ function PanelAdmin({ onAjustesGuardados }) {
             {verRecogidos && (
               <div className="flex flex-col gap-1.5 mt-2">
                 {recogidos.map((d) => (
-                  <div key={d.ids[0]} className="flex items-center gap-2 text-sm rounded-lg px-3 py-1.5 border border-gray-100">
+                  <div key={d.ids[0]} className="flex flex-wrap items-center gap-2 text-sm rounded-lg px-3 py-1.5 border border-gray-100">
                     <span className="flex-1 text-gray-500">{fechaLarga(d.fecha)} <span className="text-gray-400">· {d.responsable}{d.recogidoEn && ` · recogido ${fechaBogota(d.recogidoEn)}`}</span></span>
                     <span className="tabular-nums text-gray-500">{formatoCOP(d.aRecoger)}</span>
-                    <BotonEstado listo textoListo="Recogido" onClick={() => accion({ accion: "recogido", ids: d.ids, recogido: false })} />
+                    <EstadoReversable
+                      texto="Recogido" clave={clave}
+                      aviso={`${fechaLarga(d.fecha)} (${formatoCOP(d.aRecoger)}) vuelve a quedar pendiente por recoger.`}
+                      onReversar={() => accion({ accion: "recogido", ids: d.ids, recogido: false })}
+                    />
                   </div>
                 ))}
               </div>
@@ -986,7 +1019,7 @@ function PanelAdmin({ onAjustesGuardados }) {
             </button>
             {verPagados && (
               <div className="flex flex-col gap-1.5 mt-2">
-                {turnosPagados.map((d) => <FilaTurno key={d.ids[0]} d={d} accion={accion} />)}
+                {turnosPagados.map((d) => <FilaTurno key={d.ids[0]} d={d} accion={accion} clave={clave} />)}
               </div>
             )}
           </div>
@@ -1169,19 +1202,15 @@ function ModalPagoEfectivo({ turnos, sobres, onCancelar, onConfirmar }) {
   );
 }
 
-function FilaTurno({ d, accion, onPagar }) {
+function FilaTurno({ d, accion, onPagar, clave }) {
   const sobresOtros = d.medioPago === "efectivo" && Object.keys(d.sobres || {}).some((f) => f !== d.fecha);
   const etiquetaPago = !d.medioPago ? "Pagado"
     : d.medioPago === "efectivo" && d.pagadoDeSobres < d.totalTurno ? "Pagado · Efectivo + Nequi"
       : `Pagado · ${NOMBRE_MEDIO[d.medioPago]}`;
-  const deshacer = () => {
-    if (confirm(`¿Marcar el turno de ${d.responsable} (${fechaLarga(d.fecha)}) como NO pagado?${d.medioPago === "efectivo" ? "\nLo que salió en efectivo se vuelve a sumar al sobre de donde salió." : ""}`)) {
-      accion({ accion: "turno", ids: d.ids, pagado: false });
-    }
-  };
+  const avisoReversar = `El turno de ${d.responsable} (${fechaLarga(d.fecha)}) vuelve a quedar pendiente de pago.${d.medioPago === "efectivo" ? " Lo que salió en efectivo se vuelve a sumar al sobre de donde salió." : ""}`;
   return (
     <div className={`text-sm rounded-lg px-3 py-2 ${d.turnoPagado ? "border border-gray-100" : "bg-gray-50"}`}>
-      <div className="flex items-center gap-2 mb-1.5">
+      <div className="flex flex-wrap items-center gap-2 mb-1.5">
         <div className="flex-1 min-w-0">
           <span className="font-medium">{d.responsable}</span>
           <span className="text-gray-500"> · {fechaLarga(d.fecha)}</span>
@@ -1193,7 +1222,7 @@ function FilaTurno({ d, accion, onPagar }) {
           )}
         </div>
         {d.turnoPagado
-          ? <BotonEstado listo textoListo={etiquetaPago} onClick={deshacer} />
+          ? <EstadoReversable texto={etiquetaPago} aviso={avisoReversar} clave={clave} onReversar={() => accion({ accion: "turno", ids: d.ids, pagado: false })} />
           : <BotonesPago onPagar={onPagar} />}
       </div>
       <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5">
