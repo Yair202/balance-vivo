@@ -16,12 +16,15 @@
  *                                 (medio "nequi" | "efectivo", obligatorio al pagar;
  *                                  en efectivo se descuenta del dinero por recoger
  *                                  de ese día)
+ *        accion "pagarTurnos"     { pagos: [{ ids, medio, sobres? }] }
+ *                                 (sobres = { fecha: monto }: de qué sobre(s)
+ *                                  salió el efectivo; sin él, del mismo día)
  *        accion "guardarAjustes"  { ajustes }
  * ---------------------------------------------------------------------------
  */
 import {
   obtenerAjustes, guardarAjustes, responsablesUsados,
-  listarArqueosAdmin, marcarRecogido, marcarTurno, congelarTurno, obtenerMediosTurno,
+  listarArqueosAdmin, marcarRecogido, marcarTurno, congelarTurno, obtenerMediosTurno, pagarTurnos,
 } from "../scripts/lib/supabase.mjs";
 import { obtenerAperturas } from "../scripts/lib/valor-teorico.mjs";
 
@@ -91,17 +94,37 @@ async function resumen(env, origen) {
     return canonico.get(clave);
   };
 
+  const filas = dias.map((d) => {
+    const fecha = fechaDe(d);
+    const turno = calcularTurno(d, ajustes, ventas);
+    const adicional = Number(d.adicional_turno) || 0;
+    const totalTurno = turno.valor + turno.comision + adicional;
+    const pago = d.turno_pagado ? d.ids.map((id) => medios[id]).find(Boolean) || null : null;
+    const medioPago = typeof pago === "string" ? pago : pago?.medio || null;
+    // En efectivo: de qué sobre(s) salió. Pagos viejos (solo "efectivo") o sin
+    // detalle salieron del sobre del mismo día.
+    const sobres = medioPago !== "efectivo" ? {}
+      : typeof pago === "object" && pago.sobres ? pago.sobres : { [fecha]: totalTurno };
+    const pagadoDeSobres = Object.values(sobres).reduce((s, v) => s + (Number(v) || 0), 0);
+    return { d, fecha, turno, adicional, totalTurno, medioPago, sobres, pagadoDeSobres };
+  });
+
+  // Lo que se sacó de cada sobre (día) para pagar turnos — propios o de otros días.
+  const sacadoDe = {};
+  for (const f of filas) {
+    for (const [fechaSobre, monto] of Object.entries(f.sobres)) {
+      (sacadoDe[fechaSobre] ||= []).push({ responsable: nombreDe(f.d.responsable), fechaTurno: f.fecha, monto: Number(monto) || 0 });
+    }
+  }
+  const sobreUsado = new Set(); // si hay dos cierres el mismo día, se descuenta una sola vez
+
   return {
     ajustes,
-    dias: dias.map((d) => {
-      const fecha = fechaDe(d);
+    dias: filas.map(({ d, fecha, turno, adicional, totalTurno, medioPago, sobres, pagadoDeSobres }) => {
       const base = d.base != null ? Number(d.base) : aperturas[d.sesion_odoo] ?? 0;
-      const turno = calcularTurno(d, ajustes, ventas);
-      const adicional = Number(d.adicional_turno) || 0;
-      const totalTurno = turno.valor + turno.comision + adicional;
-      const medioPago = d.turno_pagado ? d.ids.map((id) => medios[id]).find(Boolean) || null : null;
-      // El turno pagado en efectivo salió de la plata de ese día.
-      const turnoEfectivo = medioPago === "efectivo" ? totalTurno : 0;
+      const pagosDelSobre = sobreUsado.has(fecha) ? [] : sacadoDe[fecha] || [];
+      sobreUsado.add(fecha);
+      const turnoEfectivo = pagosDelSobre.reduce((s, p) => s + p.monto, 0);
       return {
         ids: d.ids,
         fecha,
@@ -110,6 +133,7 @@ async function resumen(env, origen) {
         contado: Number(d.contado),
         base,
         turnoEfectivo,
+        pagosDelSobre,
         aRecoger: Math.max(0, Number(d.contado) - base - turnoEfectivo),
         recogido: !!d.recogido,
         recogidoEn: d.recogido_en,
@@ -119,6 +143,8 @@ async function resumen(env, origen) {
         adicional,
         totalTurno,
         medioPago,
+        sobres,
+        pagadoDeSobres,
         turnoPagado: !!d.turno_pagado,
         turnoPagadoEn: d.turno_pagado_en,
       };
@@ -164,6 +190,28 @@ export default async function handler(req, res) {
         const [ajustesActuales, ventas] = await Promise.all([obtenerAjustes(env), ventasPorDia(origenDe(req))]);
         await congelarTurno(env, ids, (f) => calcularTurno(f, ajustesActuales, ventas));
       }
+      return res.status(200).json({ ok: true });
+    }
+
+    if (accion === "pagarTurnos") {
+      const pagos = (req.body.pagos || []).filter((p) => p?.ids?.length);
+      if (!pagos.length) return res.status(400).json({ error: "Faltan los turnos." });
+      if (pagos.some((p) => !MEDIOS_PAGO.includes(p.medio))) {
+        return res.status(400).json({ error: "Elige si el turno se paga por Nequi o en efectivo." });
+      }
+      const limpios = pagos.map((p) => ({
+        ids: p.ids,
+        medio: p.medio,
+        sobres: p.medio === "efectivo" && p.sobres
+          ? Object.fromEntries(Object.entries(p.sobres)
+            .filter(([f, m]) => /^\d{4}-\d{2}-\d{2}$/.test(f) && Number(m) > 0)
+            .map(([f, m]) => [f, Math.round(Number(m))]))
+          : undefined,
+      }));
+      await pagarTurnos(env, limpios);
+      const ids = limpios.flatMap((p) => p.ids);
+      const [ajustesActuales, ventas] = await Promise.all([obtenerAjustes(env), ventasPorDia(origenDe(req))]);
+      await congelarTurno(env, ids, (f) => calcularTurno(f, ajustesActuales, ventas));
       return res.status(200).json({ ok: true });
     }
 

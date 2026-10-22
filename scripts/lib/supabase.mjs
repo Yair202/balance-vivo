@@ -147,7 +147,9 @@ export async function marcarRecogido(env, ids, recogido) {
   });
 }
 
-// Medio de pago de cada turno pagado ("nequi" | "efectivo"), por id de arqueo.
+// Medio de pago de cada turno pagado ("nequi" | "efectivo", o en efectivo
+// { medio: "efectivo", sobres: { fecha: monto } } si salió de otro(s) sobre(s)),
+// por id de arqueo.
 // Vive en la tabla `ajustes` (clave "medios_turno") para no tener que agregar
 // una columna nueva a `arqueos`.
 export async function obtenerMediosTurno(env) {
@@ -180,6 +182,27 @@ export async function marcarTurno(env, ids, { pagado, valor, adicional, medio })
   if (valor !== undefined) cambios.valor_turno = valor;
   if (adicional !== undefined) cambios.adicional_turno = adicional;
   await supaFetch(env, `arqueos?id=in.(${ids.join(",")})`, { method: "PATCH", body: JSON.stringify(cambios) });
+}
+
+// Pagar varios turnos de una vez. Cada pago: { ids, medio, sobres? } — en
+// efectivo, `sobres` = { fecha: monto } dice de qué sobre (día por recoger)
+// salió la plata; sin `sobres` sale del sobre del mismo día del turno.
+export async function pagarTurnos(env, pagos) {
+  const medios = await obtenerMediosTurno(env);
+  for (const p of pagos) {
+    const valor = p.medio === "efectivo" && p.sobres ? { medio: "efectivo", sobres: p.sobres } : p.medio;
+    for (const id of p.ids) medios[id] = valor;
+  }
+  await supaFetch(env, "ajustes?on_conflict=clave", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ clave: "medios_turno", valor: medios, actualizado_en: new Date().toISOString() }),
+  });
+  const ids = pagos.flatMap((p) => p.ids);
+  await supaFetch(env, `arqueos?id=in.(${ids.join(",")})`, {
+    method: "PATCH",
+    body: JSON.stringify({ turno_pagado: true, turno_pagado_en: new Date().toISOString() }),
+  });
 }
 
 // Al pagar un turno se deja fijo su valor: si después cambian la tarifa del

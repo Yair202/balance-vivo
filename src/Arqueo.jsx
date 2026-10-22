@@ -84,6 +84,36 @@ function armarBase(cantidades, base) {
   return { ...res, exacto: res.total === Number(base), sin20: !exigir20 && meta * UNIDAD >= 20000 };
 }
 
+// Qué billetes/monedas dejar en caja (resultado de armarBase).
+function ListaBase({ composicion, base }) {
+  return (
+    <div className="mt-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
+      <p className="font-semibold text-amber-900 mb-1">Deja en caja:</p>
+      <ul className="space-y-0.5">
+        {composicion.piezas.map((p) => (
+          <li key={`${p.tipo}-${p.valor}`} className="flex justify-between gap-3 text-amber-900">
+            <span>
+              <span className="font-semibold tabular-nums">{p.cantidad}</span>{" "}
+              {p.cantidad === 1 ? p.tipo.toLowerCase() : `${p.tipo.toLowerCase()}s`} de {formatoCOP(p.valor)}
+              {p.todos && p.cantidad > 1 && <span className="text-xs text-amber-700"> (todos)</span>}
+            </span>
+            <span className="tabular-nums">{formatoCOP(p.valor * p.cantidad)}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-amber-700 mt-1">El resto del efectivo es lo que se guarda.</p>
+      {!composicion.exacto && (
+        <p className="text-xs text-red-600 mt-1">
+          Con lo contado no se puede armar exacto {formatoCOP(Number(base))}; lo más cercano es {formatoCOP(composicion.total)}.
+        </p>
+      )}
+      {composicion.sin20 && (
+        <p className="text-xs text-red-600 mt-1">No hay billetes de $20.000 en lo contado.</p>
+      )}
+    </div>
+  );
+}
+
 function LoginArqueo({ onIngresar }) {
   const [clave, setClave] = useState("");
   const [error, setError] = useState(false);
@@ -149,6 +179,16 @@ export default function Arqueo() {
   const [guardando, setGuardando] = useState(false);
   const [guardado, setGuardado] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState("");
+  const [sesionGuardada, setSesionGuardada] = useState(null);
+
+  // Terminar: limpia el conteo para el próximo cierre.
+  const terminar = () => {
+    setGuardado(false);
+    setSesionGuardada(null);
+    setCantidades(Array(DENOMINACIONES.length).fill(""));
+    setBaseTocada(false);
+    setErrorGuardar("");
+  };
 
   const [empleados, setEmpleados] = useState([]);
   // Base que se deja en caja para el día siguiente — la que fije el administrador
@@ -220,6 +260,12 @@ export default function Arqueo() {
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autenticado]);
+
+  // Se limpia solo cuando en Odoo ya abrieron otra caja (el día siguiente).
+  useEffect(() => {
+    if (guardado && sesion?.hayAbierta && sesionGuardada && sesion.sesion !== sesionGuardada) terminar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sesion, guardado, sesionGuardada]);
 
   const totalContado = useMemo(
     () => DENOMINACIONES.reduce((s, d, i) => s + d.valor * (Number(cantidades[i]) || 0), 0),
@@ -296,9 +342,10 @@ export default function Arqueo() {
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "No se pudo guardar el arqueo.");
+      // El conteo NO se borra: después de guardar todavía falta cerrar en Odoo
+      // y separar la base, y para eso se necesita ver qué billetes dejar.
       setGuardado(true);
-      setCantidades(Array(DENOMINACIONES.length).fill(""));
-      setBaseTocada(false);
+      setSesionGuardada(sesion?.sesion || null);
       traerGastos();
     } catch (e) {
       setErrorGuardar(String(e.message || e));
@@ -406,10 +453,10 @@ export default function Arqueo() {
                     <td className="py-1.5 text-gray-600">{d.tipo} {formatoCOP(d.valor)}</td>
                     <td className="py-1.5 text-right">
                       <input
-                        type="number" min="0" value={cantidades[i]}
+                        type="number" min="0" value={cantidades[i]} readOnly={guardado}
                         onChange={(e) => cambiarCantidad(i, e.target.value)}
                         placeholder="0"
-                        className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums"
+                        className={`w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums ${guardado ? "bg-gray-50 text-gray-500" : ""}`}
                       />
                     </td>
                     <td className="py-1.5 text-right tabular-nums font-medium">{formatoCOP(d.valor * (Number(cantidades[i]) || 0))}</td>
@@ -427,37 +474,12 @@ export default function Arqueo() {
                 {baseAdmin > 0 && <span className="block text-xs text-gray-400">Definida por el administrador</span>}
               </span>
               <input
-                type="number" min="0" value={base} readOnly={baseAdmin > 0}
+                type="number" min="0" value={base} readOnly={baseAdmin > 0 || guardado}
                 onChange={(e) => { setBase(e.target.value); setBaseTocada(true); }}
-                className={`w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums ${baseAdmin > 0 ? "bg-gray-50 text-gray-500" : ""}`}
+                className={`w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums ${baseAdmin > 0 || guardado ? "bg-gray-50 text-gray-500" : ""}`}
               />
             </div>
-            {composicionBase && (
-              <div className="mt-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
-                <p className="font-semibold text-amber-900 mb-1">Deja en caja:</p>
-                <ul className="space-y-0.5">
-                  {composicionBase.piezas.map((p) => (
-                    <li key={`${p.tipo}-${p.valor}`} className="flex justify-between gap-3 text-amber-900">
-                      <span>
-                        <span className="font-semibold tabular-nums">{p.cantidad}</span>{" "}
-                        {p.cantidad === 1 ? p.tipo.toLowerCase() : `${p.tipo.toLowerCase()}s`} de {formatoCOP(p.valor)}
-                        {p.todos && p.cantidad > 1 && <span className="text-xs text-amber-700"> (todos)</span>}
-                      </span>
-                      <span className="tabular-nums">{formatoCOP(p.valor * p.cantidad)}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-xs text-amber-700 mt-1">El resto del efectivo es lo que se guarda.</p>
-                {!composicionBase.exacto && (
-                  <p className="text-xs text-red-600 mt-1">
-                    Con lo contado no se puede armar exacto {formatoCOP(Number(base))}; lo más cercano es {formatoCOP(composicionBase.total)}.
-                  </p>
-                )}
-                {composicionBase.sin20 && (
-                  <p className="text-xs text-red-600 mt-1">No hay billetes de $20.000 en lo contado.</p>
-                )}
-              </div>
-            )}
+            {composicionBase && <ListaBase composicion={composicionBase} base={base} />}
             <div className="flex justify-between pt-2 text-sm font-semibold text-emerald-800">
               <span>Para guardar (lo recoge el administrador)</span>
               <span className="tabular-nums">{formatoCOP(paraGuardar)}</span>
@@ -544,10 +566,31 @@ export default function Arqueo() {
             )}
           </div>
 
-          {sesion?.hayAbierta && (
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          {(sesion?.hayAbierta || guardado) && (
+            <div className={`rounded-2xl border p-4 shadow-sm ${guardado ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"}`}>
               {guardado ? (
-                <p className="text-sm text-emerald-700 font-semibold text-center flex items-center justify-center gap-1.5"><CheckCircle2 size={16} />Arqueo guardado — ya puedes consultarlo en "Historial".</p>
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-emerald-800 font-semibold flex items-center gap-1.5"><CheckCircle2 size={16} />Arqueo guardado. Ahora:</p>
+                  <ol className="text-sm text-gray-700 list-decimal pl-5 space-y-1">
+                    <li>Cierra la caja en Odoo con <b className="tabular-nums">{formatoCOP(totalContado)}</b>.</li>
+                    <li>Deja la base en la caja:</li>
+                  </ol>
+                  {composicionBase
+                    ? <ListaBase composicion={composicionBase} base={base} />
+                    : <p className="text-sm text-gray-500 pl-5">Base: {formatoCOP(Number(base) || 0)}</p>}
+                  <p className="text-sm text-gray-700 pl-5">
+                    3. Guarda en el sobre <b className="tabular-nums text-emerald-800">{formatoCOP(paraGuardar)}</b>.
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setGuardado(false)} className="flex-1 text-sm font-semibold text-gray-600 border border-gray-300 bg-white rounded-lg py-2">
+                      Corregir conteo
+                    </button>
+                    <button onClick={terminar} className="flex-1 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg py-2">
+                      Listo, terminar
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 text-center">Si no le das "Listo", se limpia solo cuando se abra la caja del día siguiente.</p>
+                </div>
               ) : (
                 <>
                   <button
@@ -709,6 +752,7 @@ function PanelAdmin({ onAjustesGuardados }) {
   const [verPagados, setVerPagados] = useState(false);
   const [filtroEmpleado, setFiltroEmpleado] = useState("");
   const [verAjustes, setVerAjustes] = useState(false);
+  const [pagoEfectivo, setPagoEfectivo] = useState(null); // turnos que se van a pagar en efectivo
 
   const llamar = async (cuerpo, contrasena = clave) => {
     const resp = await fetch("/api/arqueo-admin", {
@@ -797,6 +841,14 @@ function PanelAdmin({ onAjustesGuardados }) {
     })
     .filter((p) => p.turnos > 0);
 
+  // Nequi se paga directo; en efectivo primero se pregunta de qué sobre salió.
+  const pagar = (lista, medio) => {
+    if (medio === "efectivo") { setPagoEfectivo(lista); return; }
+    const total = lista.reduce((s, d) => s + d.totalTurno, 0);
+    if (lista.length > 1 && !confirm(`¿Marcar los ${lista.length} turnos de ${lista[0].responsable} (${formatoCOP(total)}) como pagados por Nequi?`)) return;
+    accion({ accion: "pagarTurnos", pagos: lista.map((d) => ({ ids: d.ids, medio: "nequi" })) });
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {error && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
@@ -837,8 +889,13 @@ function PanelAdmin({ onAjustesGuardados }) {
                   <div className="font-medium">{fechaLarga(d.fecha)} <span className="font-normal text-gray-400">· {d.responsable}</span></div>
                   <div className="text-xs text-gray-400 tabular-nums">
                     Contado {formatoCOP(d.contado)} − base {formatoCOP(d.base)}
-                    {d.turnoEfectivo > 0 && <span className="text-amber-700"> − turno en efectivo {formatoCOP(d.turnoEfectivo)}</span>}
+                    {d.turnoEfectivo > 0 && <span className="text-amber-700"> − turnos pagados de este sobre {formatoCOP(d.turnoEfectivo)}</span>}
                   </div>
+                  {d.pagosDelSobre?.length > 0 && (
+                    <div className="text-xs text-amber-700">
+                      {d.pagosDelSobre.map((p) => `turno de ${p.responsable} (${fechaCorta(p.fechaTurno)}) ${formatoCOP(p.monto)}`).join(" · ")}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 justify-end">
                   <span className="tabular-nums font-semibold mr-auto sm:mr-0">{formatoCOP(d.aRecoger)}</span>
@@ -896,7 +953,7 @@ function PanelAdmin({ onAjustesGuardados }) {
           <p className="text-sm text-gray-400 text-center py-2">No hay turnos pendientes de pago.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
-            {turnosPendientes.map((d) => <FilaTurno key={d.ids[0]} d={d} accion={accion} />)}
+            {turnosPendientes.map((d) => <FilaTurno key={d.ids[0]} d={d} accion={accion} onPagar={(medio) => pagar([d], medio)} />)}
           </div>
         )}
 
@@ -908,15 +965,19 @@ function PanelAdmin({ onAjustesGuardados }) {
           {filtroEmpleado && turnosPendientes.length > 0 && (
             <BotonesPago
               texto={`Pagar todo a ${filtroEmpleado}:`}
-              onPagar={(medio) => {
-                const aviso = medio === "efectivo" ? "\nCada turno se descuenta del dinero por recoger de su día." : "";
-                if (confirm(`¿Marcar los ${turnosPendientes.length} turnos de ${filtroEmpleado} (${formatoCOP(totalTurnosPendiente)}) como pagados por ${NOMBRE_MEDIO[medio]}?${aviso}`)) {
-                  accion({ accion: "turno", ids: turnosPendientes.flatMap((d) => d.ids), pagado: true, medio });
-                }
-              }}
+              onPagar={(medio) => pagar(turnosPendientes, medio)}
             />
           )}
         </div>
+
+        {pagoEfectivo && (
+          <ModalPagoEfectivo
+            turnos={pagoEfectivo}
+            sobres={porRecoger}
+            onCancelar={() => setPagoEfectivo(null)}
+            onConfirmar={async (pagos) => { setPagoEfectivo(null); await accion({ accion: "pagarTurnos", pagos }); }}
+          />
+        )}
 
         {turnosPagados.length > 0 && (
           <div className="mt-3">
@@ -986,9 +1047,135 @@ function BotonesPago({ texto = "Pagar:", onPagar }) {
   );
 }
 
-function FilaTurno({ d, accion }) {
+const fechaCorta = (f) => new Date(`${f}T12:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
+
+// Reparte lo sacado de los sobres entre los turnos, en orden: cada turno se
+// llena con lo que quede del primer sobre, luego del siguiente... Si lo de los
+// sobres no alcanza, lo que falte se toma como pagado por Nequi.
+function repartirEnTurnos(turnos, partes) {
+  const quedan = partes.map((p) => ({ ...p }));
+  return turnos.map((d) => {
+    let falta = d.totalTurno;
+    const sobres = {};
+    for (const p of quedan) {
+      if (falta <= 0) break;
+      const toma = Math.min(p.monto, falta);
+      if (toma > 0) { sobres[p.fecha] = (sobres[p.fecha] || 0) + toma; p.monto -= toma; falta -= toma; }
+    }
+    return Object.keys(sobres).length ? { ids: d.ids, medio: "efectivo", sobres } : { ids: d.ids, medio: "nequi" };
+  });
+}
+
+function OpcionPago({ modo, setModo, valor, titulo, children }) {
+  return (
+    <div onClick={() => setModo(valor)} className={`rounded-xl border px-3 py-2.5 cursor-pointer ${modo === valor ? "border-emerald-600 bg-emerald-50" : "border-gray-200"}`}>
+      <span className="flex items-center gap-2 text-sm font-semibold">
+        <input type="radio" readOnly checked={modo === valor} />{titulo}
+      </span>
+      {modo === valor && children && <div className="mt-2 pl-6">{children}</div>}
+    </div>
+  );
+}
+
+// Pagar en efectivo: ¿de qué sobre salió la plata? Del mismo día de cada turno
+// (lo normal), todo de un solo sobre, o repartido como haya sido.
+function ModalPagoEfectivo({ turnos, sobres, onCancelar, onConfirmar }) {
+  const total = turnos.reduce((s, d) => s + d.totalTurno, 0);
+  const [modo, setModo] = useState("propio"); // 'propio' | 'uno' | 'repartir'
+  const [fechaUno, setFechaUno] = useState(() => (sobres.find((s) => s.aRecoger >= total) || sobres[sobres.length - 1])?.fecha || "");
+  const [montos, setMontos] = useState({});
+
+  const partes = modo === "uno"
+    ? (fechaUno ? [{ fecha: fechaUno, monto: total }] : [])
+    : modo === "repartir"
+      ? sobres.map((s) => ({ fecha: s.fecha, monto: Math.max(0, Number(montos[s.fecha]) || 0) })).filter((p) => p.monto > 0)
+      : turnos.map((d) => ({ fecha: d.fecha, monto: d.totalTurno }));
+  const suma = partes.reduce((s, p) => s + p.monto, 0);
+  const resto = total - suma;
+  const sobreUno = sobres.find((s) => s.fecha === fechaUno);
+  const valido = modo === "propio" || (suma > 0 && resto >= 0);
+
+  const confirmar = () => {
+    if (!valido) return;
+    const pagos = modo === "propio"
+      ? turnos.map((d) => ({ ids: d.ids, medio: "efectivo", sobres: { [d.fecha]: d.totalTurno } }))
+      : repartirEnTurnos(turnos, partes);
+    onConfirmar(pagos);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onCancelar}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold">Pagar en efectivo</h3>
+            <p className="text-xs text-gray-500">
+              {turnos[0].responsable} · {turnos.length === 1 ? fechaLarga(turnos[0].fecha) : `${turnos.length} turnos`} · <b className="tabular-nums text-gray-800">{formatoCOP(total)}</b>
+            </p>
+          </div>
+          <button onClick={onCancelar} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
+        </div>
+        <p className="text-sm text-gray-600">¿De qué sobre salió la plata?</p>
+
+        <OpcionPago modo={modo} setModo={setModo} valor="propio" titulo={turnos.length === 1 ? "Del sobre de ese mismo día" : "Cada turno del sobre de su mismo día"}>
+          <p className="text-xs text-gray-500">
+            {turnos.map((d) => `${fechaCorta(d.fecha)}: ${formatoCOP(d.totalTurno)}`).join(" · ")}
+          </p>
+        </OpcionPago>
+
+        <OpcionPago modo={modo} setModo={setModo} valor="uno" titulo="Todo de un solo sobre">
+          {sobres.length === 0 ? <p className="text-xs text-gray-500">No hay sobres pendientes por recoger.</p> : (
+            <>
+              <select value={fechaUno} onChange={(e) => setFechaUno(e.target.value)} className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white">
+                {sobres.map((s) => <option key={s.ids[0]} value={s.fecha}>{fechaLarga(s.fecha)} — tiene {formatoCOP(s.aRecoger)}</option>)}
+              </select>
+              {sobreUno && sobreUno.aRecoger < total && (
+                <p className="text-xs text-red-600 mt-1">Ese sobre solo tiene {formatoCOP(sobreUno.aRecoger)}: quedaría en negativo.</p>
+              )}
+            </>
+          )}
+        </OpcionPago>
+
+        <OpcionPago modo={modo} setModo={setModo} valor="repartir" titulo="Repartido entre varios sobres / una parte por Nequi">
+          {sobres.length === 0 ? <p className="text-xs text-gray-500">No hay sobres pendientes por recoger.</p> : (
+            <div className="flex flex-col gap-1.5">
+              {sobres.map((s) => (
+                <label key={s.ids[0]} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-gray-600">{fechaCorta(s.fecha)} <span className="text-xs text-gray-400">(tiene {formatoCOP(s.aRecoger)})</span></span>
+                  <input
+                    type="number" min="0" step="1000" value={montos[s.fecha] ?? ""} placeholder="0"
+                    onChange={(e) => setMontos({ ...montos, [s.fecha]: e.target.value })}
+                    className="w-28 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right tabular-nums"
+                  />
+                </label>
+              ))}
+              <div className="flex justify-between text-sm pt-1.5 border-t border-gray-100">
+                <span>Sacado de sobres</span><b className="tabular-nums">{formatoCOP(suma)}</b>
+              </div>
+              {resto > 0 && suma > 0 && <p className="text-xs text-amber-700">Faltan {formatoCOP(resto)}: se toman como pagados por Nequi.</p>}
+              {resto < 0 && <p className="text-xs text-red-600">Te pasaste {formatoCOP(-resto)} del total a pagar.</p>}
+            </div>
+          )}
+        </OpcionPago>
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={onCancelar} className="flex-1 text-sm font-semibold text-gray-600 border border-gray-300 rounded-lg py-2">Cancelar</button>
+          <button onClick={confirmar} disabled={!valido} className="flex-1 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg py-2 disabled:opacity-40">
+            Pagar {formatoCOP(modo === "propio" ? total : suma)}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilaTurno({ d, accion, onPagar }) {
+  const sobresOtros = d.medioPago === "efectivo" && Object.keys(d.sobres || {}).some((f) => f !== d.fecha);
+  const etiquetaPago = !d.medioPago ? "Pagado"
+    : d.medioPago === "efectivo" && d.pagadoDeSobres < d.totalTurno ? "Pagado · Efectivo + Nequi"
+      : `Pagado · ${NOMBRE_MEDIO[d.medioPago]}`;
   const deshacer = () => {
-    if (confirm(`¿Marcar el turno de ${d.responsable} (${fechaLarga(d.fecha)}) como NO pagado?${d.medioPago === "efectivo" ? "\nSe vuelve a sumar al dinero por recoger de ese día." : ""}`)) {
+    if (confirm(`¿Marcar el turno de ${d.responsable} (${fechaLarga(d.fecha)}) como NO pagado?${d.medioPago === "efectivo" ? "\nLo que salió en efectivo se vuelve a sumar al sobre de donde salió." : ""}`)) {
       accion({ accion: "turno", ids: d.ids, pagado: false });
     }
   };
@@ -999,10 +1186,15 @@ function FilaTurno({ d, accion }) {
           <span className="font-medium">{d.responsable}</span>
           <span className="text-gray-500"> · {fechaLarga(d.fecha)}</span>
           {d.turnoPagado && d.turnoPagadoEn && <span className="text-xs text-gray-400"> · pagado {fechaBogota(d.turnoPagadoEn)}</span>}
+          {sobresOtros && (
+            <div className="text-xs text-amber-700">
+              Salió del sobre de {Object.entries(d.sobres).map(([f, m]) => `${fechaCorta(f)} (${formatoCOP(m)})`).join(", ")}
+            </div>
+          )}
         </div>
         {d.turnoPagado
-          ? <BotonEstado listo textoListo={d.medioPago ? `Pagado · ${NOMBRE_MEDIO[d.medioPago]}` : "Pagado"} onClick={deshacer} />
-          : <BotonesPago onPagar={(medio) => accion({ accion: "turno", ids: d.ids, pagado: true, medio })} />}
+          ? <BotonEstado listo textoListo={etiquetaPago} onClick={deshacer} />
+          : <BotonesPago onPagar={onPagar} />}
       </div>
       <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5">
         <CampoValor etiqueta="Turno" valorActual={d.valorTurno} disabled={d.turnoPagado} onGuardar={(v) => accion({ accion: "turno", ids: d.ids, valor: v })} />
