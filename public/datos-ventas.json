@@ -7693,14 +7693,14 @@
   },
   {
     "fecha": "2026-10-22",
-    "ventasBrutas": 175000,
-    "efectivo": 175000,
+    "ventasBrutas": 310000,
+    "efectivo": 235000,
     "tarjetas": 0,
-    "transferencias": 0,
+    "transferencias": 75000,
     "addi": 0,
-    "costoVentas": 96000,
+    "costoVentas": 157000,
     "gastosFijos": 0,
     "gastosVariables": 0,
-    "numeroVentas": 2
+    "numeroVentas": 4
   }
 ]
