@@ -1,15 +1,15 @@
 [
   {
     "fecha": "2024-10-24",
-    "ventasBrutas": 885000,
+    "ventasBrutas": 760000,
     "efectivo": 70000,
-    "tarjetas": 390000,
+    "tarjetas": 265000,
     "transferencias": 425000,
     "addi": 0,
-    "costoVentas": 512000,
+    "costoVentas": 437000,
     "gastosFijos": 0,
     "gastosVariables": 0,
-    "numeroVentas": 9
+    "numeroVentas": 8
   },
   {
     "fecha": "2024-10-25",
