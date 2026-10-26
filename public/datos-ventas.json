@@ -1,15 +1,15 @@
 [
   {
     "fecha": "2024-10-26",
-    "ventasBrutas": 205000,
-    "efectivo": 205000,
+    "ventasBrutas": 170000,
+    "efectivo": 170000,
     "tarjetas": 0,
     "transferencias": 0,
     "addi": 0,
-    "costoVentas": 62000,
+    "costoVentas": 34000,
     "gastosFijos": 0,
     "gastosVariables": 0,
-    "numeroVentas": 3
+    "numeroVentas": 2
   },
   {
     "fecha": "2024-10-27",
@@ -7705,14 +7705,14 @@
   },
   {
     "fecha": "2026-10-26",
-    "ventasBrutas": 390000,
+    "ventasBrutas": 585000,
     "efectivo": 0,
     "tarjetas": 0,
-    "transferencias": 260000,
+    "transferencias": 455000,
     "addi": 130000,
-    "costoVentas": 200000,
+    "costoVentas": 318000,
     "gastosFijos": 0,
     "gastosVariables": 0,
-    "numeroVentas": 5
+    "numeroVentas": 7
   }
 ]
