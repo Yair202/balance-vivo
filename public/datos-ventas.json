@@ -1,17 +1,5 @@
 [
   {
-    "fecha": "2024-11-05",
-    "ventasBrutas": 35000,
-    "efectivo": 0,
-    "tarjetas": 0,
-    "transferencias": 35000,
-    "addi": 0,
-    "costoVentas": 20000,
-    "gastosFijos": 0,
-    "gastosVariables": 0,
-    "numeroVentas": 1
-  },
-  {
     "fecha": "2024-11-06",
     "ventasBrutas": 246000,
     "efectivo": 70000,
@@ -618,7 +606,7 @@
     "tarjetas": 142000,
     "transferencias": 521000,
     "addi": 0,
-    "costoVentas": 860000,
+    "costoVentas": 880000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 19
@@ -2550,7 +2538,7 @@
     "tarjetas": 0,
     "transferencias": 160000,
     "addi": 103000,
-    "costoVentas": 140000,
+    "costoVentas": 87000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 3
@@ -2610,7 +2598,7 @@
     "tarjetas": 0,
     "transferencias": 160000,
     "addi": 280000,
-    "costoVentas": 277000,
+    "costoVentas": 214000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 4
@@ -2646,7 +2634,7 @@
     "tarjetas": 150000,
     "transferencias": 280000,
     "addi": 320000,
-    "costoVentas": 416000,
+    "costoVentas": 247000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 9
@@ -2658,7 +2646,7 @@
     "tarjetas": 65000,
     "transferencias": 205000,
     "addi": 0,
-    "costoVentas": 212000,
+    "costoVentas": 232000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 6
@@ -2670,7 +2658,7 @@
     "tarjetas": 0,
     "transferencias": 130000,
     "addi": 0,
-    "costoVentas": 67000,
+    "costoVentas": 87000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 2
@@ -2706,7 +2694,7 @@
     "tarjetas": 0,
     "transferencias": 330000,
     "addi": 83000,
-    "costoVentas": 250000,
+    "costoVentas": 270000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 9
@@ -2838,7 +2826,7 @@
     "tarjetas": 0,
     "transferencias": 205000,
     "addi": 0,
-    "costoVentas": 112000,
+    "costoVentas": 132000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 3
@@ -2922,7 +2910,7 @@
     "tarjetas": 0,
     "transferencias": 195000,
     "addi": 633000,
-    "costoVentas": 408000,
+    "costoVentas": 448000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 6
@@ -3018,7 +3006,7 @@
     "tarjetas": 0,
     "transferencias": 0,
     "addi": 95000,
-    "costoVentas": 53000,
+    "costoVentas": 0,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 1
@@ -3210,7 +3198,7 @@
     "tarjetas": 0,
     "transferencias": 0,
     "addi": 0,
-    "costoVentas": 125000,
+    "costoVentas": 165000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 3
@@ -3510,7 +3498,7 @@
     "tarjetas": 0,
     "transferencias": 188000,
     "addi": 0,
-    "costoVentas": 195000,
+    "costoVentas": 142000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 4
@@ -3882,7 +3870,7 @@
     "tarjetas": 235000,
     "transferencias": 195000,
     "addi": 0,
-    "costoVentas": 156000,
+    "costoVentas": 103000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 6
@@ -3894,7 +3882,7 @@
     "tarjetas": 160000,
     "transferencias": 35000,
     "addi": 83000,
-    "costoVentas": 225000,
+    "costoVentas": 172000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 6
@@ -4230,7 +4218,7 @@
     "tarjetas": 130000,
     "transferencias": 708000,
     "addi": 120000,
-    "costoVentas": 647000,
+    "costoVentas": 594000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 20
@@ -4242,7 +4230,7 @@
     "tarjetas": 95000,
     "transferencias": 561000,
     "addi": 130000,
-    "costoVentas": 840000,
+    "costoVentas": 787000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 27
@@ -4314,7 +4302,7 @@
     "tarjetas": 376000,
     "transferencias": 1831000,
     "addi": 345000,
-    "costoVentas": 2203000,
+    "costoVentas": 2150000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 50
@@ -4326,7 +4314,7 @@
     "tarjetas": 445000,
     "transferencias": 1430000,
     "addi": 70000,
-    "costoVentas": 2829000,
+    "costoVentas": 2849000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 54
@@ -4350,7 +4338,7 @@
     "tarjetas": 525000,
     "transferencias": 2340000,
     "addi": 230000,
-    "costoVentas": 3011000,
+    "costoVentas": 2958000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 70
@@ -5106,7 +5094,7 @@
     "tarjetas": 40000,
     "transferencias": 0,
     "addi": 0,
-    "costoVentas": 159000,
+    "costoVentas": 106000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 3
@@ -5814,7 +5802,7 @@
     "tarjetas": 130000,
     "transferencias": 660000,
     "addi": 0,
-    "costoVentas": 417000,
+    "costoVentas": 364000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 6
@@ -5934,7 +5922,7 @@
     "tarjetas": 0,
     "transferencias": 70000,
     "addi": 0,
-    "costoVentas": 159000,
+    "costoVentas": 179000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 3
@@ -7026,7 +7014,7 @@
     "tarjetas": 90000,
     "transferencias": 135000,
     "addi": 535000,
-    "costoVentas": 449000,
+    "costoVentas": 396000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 3
@@ -7302,7 +7290,7 @@
     "tarjetas": 105000,
     "transferencias": 270000,
     "addi": 260000,
-    "costoVentas": 518000,
+    "costoVentas": 412000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 9
@@ -7626,7 +7614,7 @@
     "tarjetas": 0,
     "transferencias": 355000,
     "addi": 195000,
-    "costoVentas": 434000,
+    "costoVentas": 381000,
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 8
@@ -7690,5 +7678,17 @@
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 2
+  },
+  {
+    "fecha": "2026-11-05",
+    "ventasBrutas": 85000,
+    "efectivo": 0,
+    "tarjetas": 0,
+    "transferencias": 85000,
+    "addi": 0,
+    "costoVentas": 0,
+    "gastosFijos": 0,
+    "gastosVariables": 0,
+    "numeroVentas": 1
   }
 ]
