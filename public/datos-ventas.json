@@ -7690,5 +7690,17 @@
     "gastosFijos": 0,
     "gastosVariables": 0,
     "numeroVentas": 4
+  },
+  {
+    "fecha": "2026-11-18",
+    "ventasBrutas": 225000,
+    "efectivo": 180000,
+    "tarjetas": 45000,
+    "transferencias": 0,
+    "addi": 0,
+    "costoVentas": 133000,
+    "gastosFijos": 0,
+    "gastosVariables": 0,
+    "numeroVentas": 2
   }
 ]
